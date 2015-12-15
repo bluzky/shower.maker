@@ -3,23 +3,25 @@
 <head>
     <meta charset="UTF-8">
     <title>Shower maker</title>
-    <link rel="stylesheet" href="css/bootstrap.min.css" media="screen" charset="utf-8">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=792, user-scalable=no">
+    <meta http-equiv="x-ua-compatible" content="ie=edge">
     <link rel="stylesheet" href="css/style.css" media="screen" charset="utf-8">
-
+    <link rel="stylesheet" href="shower/themes/ribbon/styles/screen.css">
 
 </head>
 <body>
     <div class="container">
         <div class="row">
             <div class="col-md-6"><textarea name="markdown" id="markdown-text" class="mardown-input"></textarea></div>
-            <div class="col-md-6"><div id="html-text" class="html-output"></div></div>
+            <div class="col-md-6"><div id="html-text" class="html-output shower list"></div></div>
         </div>
         <div class="row"><button id="compile">Compile</button></div>
     </div>
 
-
 <script src="js/jquery-2.1.4.min.js" charset="utf-8"></script>
 <script src="js/bootstrap.min.js" charset="utf-8"></script>
+<script src="js/shower.js"></script>
 <script src="js/marked.js" charset="utf-8"></script>
 <script src="js/app.js" charset="utf-8"></script>
 </body>

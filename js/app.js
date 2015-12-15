@@ -2,9 +2,9 @@ var slideReg = /^ *::([a-zA-Z0-9]*).*\n*([^]*?)(?:\n+ *::)/;
 function compile(text){
     var html = "";
     while((result = slideReg.exec(text)) != undefined){
-      html += '<div>';
+      html += '<section class="slide"><div>';
       html += marked(result[2]);
-      html += "</div>";
+      html += "</div></section>";
       text = text.substring(result[0].length-2);
     }
     return html;
@@ -15,6 +15,7 @@ $(document).ready(function(e){
       if (event.ctrlKey && event.keyCode == 82) {
           var markdownText = $('#markdown-text').val();
           $('#html-text').html(compile(markdownText));
+          reloadSlide(window);
           event.preventDefault();
           event.stopPropagation();
       }
