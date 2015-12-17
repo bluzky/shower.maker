@@ -1,13 +1,25 @@
-.container{
-    margin-top: 30px;
+
+*{
+    box-sizing: border-box;
+}
+
+html, body {
+    height: 100%;
+}
+
+.panel{
+    width: 50%;
+    height: 100%;
+    float: left;
 }
 
 .mardown-input, .html-output{
     width: 100%;
     min-height: 500px;
-    height: auto;
+    height: 100%;
     padding: 20px;
     color: #666;
+    overflow: scroll;
 }
 
 .mardown-input{
@@ -17,4 +29,12 @@
 .html-output{
     border: solid 1px #ddd;
     background-color: #F5F2F0;
+}
+
+/*Override list display property*/
+@media screen {
+    .shower.list{
+        display: normal;
+        position: relative;
+    }
 }

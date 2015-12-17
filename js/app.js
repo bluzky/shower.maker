@@ -10,6 +10,20 @@ function compile(text){
     return html;
 }
 
+marked.setOptions({langPrefix: "language-"});
+var renderer = new marked.Renderer();
+
+renderer.heading = function (text, level) {
+  var escapedText = text.toLowerCase().replace(/[^\w]+/g, '-');
+
+  return '<h' + level + '><a name="' +
+                escapedText +
+                 '" class="anchor" href="#' +
+                 escapedText +
+                 '"><span class="header-link"></span></a>' +
+                  text + '</h' + level + '>';
+},
+
 $(document).ready(function(e){
   $(window).keydown(function(event) {
       if (event.ctrlKey && event.keyCode == 82) {
@@ -28,6 +42,9 @@ $(document).ready(function(e){
   $('#compile').click(function(e){
     var markdownText = $('#markdown-text').val();
     $('#html-text').html(compile(markdownText));
-    event.preventDefault();
+    var DOMContentLoaded_event = document.createEvent("Event")
+    DOMContentLoaded_event.initEvent("DOMContentLoaded", true, true)
+    window.document.dispatchEvent(DOMContentLoaded_event)
+    e.preventDefault();
   });
 });

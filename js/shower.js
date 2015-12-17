@@ -11,418 +11,413 @@
 
 (function(global) {
 
-    var undef,
+var undef,
 
-        DECL_STATES = {
-            NOT_RESOLVED: 'NOT_RESOLVED',
-            IN_RESOLVING: 'IN_RESOLVING',
-            RESOLVED: 'RESOLVED'
-        },
+    DECL_STATES = {
+        NOT_RESOLVED : 'NOT_RESOLVED',
+        IN_RESOLVING : 'IN_RESOLVING',
+        RESOLVED     : 'RESOLVED'
+    },
 
-        /**
-         * Creates a new instance of modular system
-         * @returns {Object}
-         */
-        create = function() {
-            var curOptions = {
-                    trackCircularDependencies: true,
-                    allowMultipleDeclarations: true
-                },
+    /**
+     * Creates a new instance of modular system
+     * @returns {Object}
+     */
+    create = function() {
+        var curOptions = {
+                trackCircularDependencies : true,
+                allowMultipleDeclarations : true
+            },
 
-                modulesStorage = {},
-                waitForNextTick = false,
-                pendingRequires = [],
+            modulesStorage = {},
+            waitForNextTick = false,
+            pendingRequires = [],
 
-                /**
-                 * Defines module
-                 * @param {String} name
-                 * @param {String[]} [deps]
-                 * @param {Function} declFn
-                 */
-                define = function(name, deps, declFn) {
-                    if (!declFn) {
-                        declFn = deps;
-                        deps = [];
-                    }
-
-                    var module = modulesStorage[name];
-                    if (!module) {
-                        module = modulesStorage[name] = {
-                            name: name,
-                            decl: undef
-                        };
-                    }
-
-                    module.decl = {
-                        name: name,
-                        prev: module.decl,
-                        fn: declFn,
-                        state: DECL_STATES.NOT_RESOLVED,
-                        deps: deps,
-                        dependents: [],
-                        exports: undef
-                    };
-                },
-
-                /**
-                 * Requires modules
-                 * @param {String|String[]} modules
-                 * @param {Function} cb
-                 * @param {Function} [errorCb]
-                 */
-                require = function(modules, cb, errorCb) {
-                    if (typeof modules === 'string') {
-                        modules = [modules];
-                    }
-
-                    if (!waitForNextTick) {
-                        waitForNextTick = true;
-                        nextTick(onNextTick);
-                    }
-
-                    pendingRequires.push({
-                        deps: modules,
-                        cb: function(exports, error) {
-                            error ?
-                                (errorCb || onError)(error) :
-                                cb.apply(global, exports);
-                        }
-                    });
-                },
-
-                /**
-                 * Returns state of module
-                 * @param {String} name
-                 * @returns {String} state, possible values are NOT_DEFINED, NOT_RESOLVED, IN_RESOLVING, RESOLVED
-                 */
-                getState = function(name) {
-                    var module = modulesStorage[name];
-                    return module ?
-                        DECL_STATES[module.decl.state] :
-                        'NOT_DEFINED';
-                },
-
-                /**
-                 * Returns whether the module is defined
-                 * @param {String} name
-                 * @returns {Boolean}
-                 */
-                isDefined = function(name) {
-                    return !!modulesStorage[name];
-                },
-
-                /**
-                 * Sets options
-                 * @param {Object} options
-                 */
-                setOptions = function(options) {
-                    for (var name in options) {
-                        if (options.hasOwnProperty(name)) {
-                            curOptions[name] = options[name];
-                        }
-                    }
-                },
-
-                getStat = function() {
-                    var res = {},
-                        module;
-
-                    for (var name in modulesStorage) {
-                        if (modulesStorage.hasOwnProperty(name)) {
-                            module = modulesStorage[name];
-                            (res[module.decl.state] || (res[module.decl.state] = [])).push(name);
-                        }
-                    }
-
-                    return res;
-                },
-
-                onNextTick = function() {
-                    waitForNextTick = false;
-                    applyRequires();
-                },
-
-                applyRequires = function() {
-                    var requiresToProcess = pendingRequires,
-                        i = 0,
-                        require;
-
-                    pendingRequires = [];
-
-                    while (require = requiresToProcess[i++]) {
-                        requireDeps(null, require.deps, [], require.cb);
-                    }
-                },
-
-                requireDeps = function(fromDecl, deps, path, cb) {
-                    var unresolvedDepsCnt = deps.length;
-                    if (!unresolvedDepsCnt) {
-                        cb([]);
-                    }
-
-                    var decls = [],
-                        onDeclResolved = function(_, error) {
-                            if (error) {
-                                cb(null, error);
-                                return;
-                            }
-
-                            if (!--unresolvedDepsCnt) {
-                                var exports = [],
-                                    i = 0,
-                                    decl;
-                                while (decl = decls[i++]) {
-                                    exports.push(decl.exports);
-                                }
-                                cb(exports);
-                            }
-                        },
-                        i = 0,
-                        len = unresolvedDepsCnt,
-                        dep, decl;
-
-                    while (i < len) {
-                        dep = deps[i++];
-                        if (typeof dep === 'string') {
-                            if (!modulesStorage[dep]) {
-                                cb(null, buildModuleNotFoundError(dep, fromDecl));
-                                return;
-                            }
-
-                            decl = modulesStorage[dep].decl;
-                        } else {
-                            decl = dep;
-                        }
-
-                        decls.push(decl);
-
-                        startDeclResolving(decl, path, onDeclResolved);
-                    }
-                },
-
-                startDeclResolving = function(decl, path, cb) {
-                    if (decl.state === DECL_STATES.RESOLVED) {
-                        cb(decl.exports);
-                        return;
-                    } else if (decl.state === DECL_STATES.IN_RESOLVING) {
-                        curOptions.trackCircularDependencies && isDependenceCircular(decl, path) ?
-                            cb(null, buildCircularDependenceError(decl, path)) :
-                            decl.dependents.push(cb);
-                        return;
-                    }
-
-                    decl.dependents.push(cb);
-
-                    if (decl.prev && !curOptions.allowMultipleDeclarations) {
-                        provideError(decl, buildMultipleDeclarationError(decl));
-                        return;
-                    }
-
-                    curOptions.trackCircularDependencies && (path = path.slice()).push(decl);
-
-                    var isProvided = false,
-                        deps = decl.prev ? decl.deps.concat([decl.prev]) : decl.deps;
-
-                    decl.state = DECL_STATES.IN_RESOLVING;
-                    requireDeps(
-                        decl,
-                        deps,
-                        path,
-                        function(depDeclsExports, error) {
-                            if (error) {
-                                provideError(decl, error);
-                                return;
-                            }
-
-                            depDeclsExports.unshift(function(exports, error) {
-                                if (isProvided) {
-                                    cb(null, buildDeclAreadyProvidedError(decl));
-                                    return;
-                                }
-
-                                isProvided = true;
-                                error ?
-                                    provideError(decl, error) :
-                                    provideDecl(decl, exports);
-                            });
-
-                            decl.fn.apply({
-                                    name: decl.name,
-                                    deps: decl.deps,
-                                    global: global
-                                },
-                                depDeclsExports);
-                        });
-                },
-
-                provideDecl = function(decl, exports) {
-                    decl.exports = exports;
-                    decl.state = DECL_STATES.RESOLVED;
-
-                    var i = 0,
-                        dependent;
-                    while (dependent = decl.dependents[i++]) {
-                        dependent(exports);
-                    }
-
-                    decl.dependents = undef;
-                },
-
-                provideError = function(decl, error) {
-                    decl.state = DECL_STATES.NOT_RESOLVED;
-
-                    var i = 0,
-                        dependent;
-                    while (dependent = decl.dependents[i++]) {
-                        dependent(null, error);
-                    }
-
-                    decl.dependents = [];
-                };
-
-            return {
-                create: create,
-                define: define,
-                require: require,
-                getState: getState,
-                isDefined: isDefined,
-                setOptions: setOptions,
-                getStat: getStat
-            };
-        },
-
-        onError = function(e) {
-            nextTick(function() {
-                throw e;
-            });
-        },
-
-        buildModuleNotFoundError = function(name, decl) {
-            return Error(decl ?
-                'Module "' + decl.name + '": can\'t resolve dependence "' + name + '"' :
-                'Required module "' + name + '" can\'t be resolved');
-        },
-
-        buildCircularDependenceError = function(decl, path) {
-            var strPath = [],
-                i = 0,
-                pathDecl;
-            while (pathDecl = path[i++]) {
-                strPath.push(pathDecl.name);
-            }
-            strPath.push(decl.name);
-
-            return Error('Circular dependence has been detected: "' + strPath.join(' -> ') + '"');
-        },
-
-        buildDeclAreadyProvidedError = function(decl) {
-            return Error('Declaration of module "' + decl.name + '" has already been provided');
-        },
-
-        buildMultipleDeclarationError = function(decl) {
-            return Error('Multiple declarations of module "' + decl.name + '" have been detected');
-        },
-
-        isDependenceCircular = function(decl, path) {
-            var i = 0,
-                pathDecl;
-            while (pathDecl = path[i++]) {
-                if (decl === pathDecl) {
-                    return true;
+            /**
+             * Defines module
+             * @param {String} name
+             * @param {String[]} [deps]
+             * @param {Function} declFn
+             */
+            define = function(name, deps, declFn) {
+                if(!declFn) {
+                    declFn = deps;
+                    deps = [];
                 }
-            }
-            return false;
-        },
 
-        nextTick = (function() {
-            var fns = [],
-                enqueueFn = function(fn) {
-                    return fns.push(fn) === 1;
-                },
-                callFns = function() {
-                    var fnsToCall = fns,
-                        i = 0,
-                        len = fns.length;
-                    fns = [];
-                    while (i < len) {
-                        fnsToCall[i++]();
+                var module = modulesStorage[name];
+                if(!module) {
+                    module = modulesStorage[name] = {
+                        name : name,
+                        decl : undef
+                    };
+                }
+
+                module.decl = {
+                    name       : name,
+                    prev       : module.decl,
+                    fn         : declFn,
+                    state      : DECL_STATES.NOT_RESOLVED,
+                    deps       : deps,
+                    dependents : [],
+                    exports    : undef
+                };
+            },
+
+            /**
+             * Requires modules
+             * @param {String|String[]} modules
+             * @param {Function} cb
+             * @param {Function} [errorCb]
+             */
+            require = function(modules, cb, errorCb) {
+                if(typeof modules === 'string') {
+                    modules = [modules];
+                }
+
+                if(!waitForNextTick) {
+                    waitForNextTick = true;
+                    nextTick(onNextTick);
+                }
+
+                pendingRequires.push({
+                    deps : modules,
+                    cb   : function(exports, error) {
+                        error?
+                            (errorCb || onError)(error) :
+                            cb.apply(global, exports);
                     }
-                };
+                });
+            },
 
-            if (typeof process === 'object' && process.nextTick) { // nodejs
-                return function(fn) {
-                    enqueueFn(fn) && process.nextTick(callFns);
-                };
+            /**
+             * Returns state of module
+             * @param {String} name
+             * @returns {String} state, possible values are NOT_DEFINED, NOT_RESOLVED, IN_RESOLVING, RESOLVED
+             */
+            getState = function(name) {
+                var module = modulesStorage[name];
+                return module?
+                    DECL_STATES[module.decl.state] :
+                    'NOT_DEFINED';
+            },
+
+            /**
+             * Returns whether the module is defined
+             * @param {String} name
+             * @returns {Boolean}
+             */
+            isDefined = function(name) {
+                return !!modulesStorage[name];
+            },
+
+            /**
+             * Sets options
+             * @param {Object} options
+             */
+            setOptions = function(options) {
+                for(var name in options) {
+                    if(options.hasOwnProperty(name)) {
+                        curOptions[name] = options[name];
+                    }
+                }
+            },
+
+            getStat = function() {
+                var res = {},
+                    module;
+
+                for(var name in modulesStorage) {
+                    if(modulesStorage.hasOwnProperty(name)) {
+                        module = modulesStorage[name];
+                        (res[module.decl.state] || (res[module.decl.state] = [])).push(name);
+                    }
+                }
+
+                return res;
+            },
+
+            onNextTick = function() {
+                waitForNextTick = false;
+                applyRequires();
+            },
+
+            applyRequires = function() {
+                var requiresToProcess = pendingRequires,
+                    i = 0, require;
+
+                pendingRequires = [];
+
+                while(require = requiresToProcess[i++]) {
+                    requireDeps(null, require.deps, [], require.cb);
+                }
+            },
+
+            requireDeps = function(fromDecl, deps, path, cb) {
+                var unresolvedDepsCnt = deps.length;
+                if(!unresolvedDepsCnt) {
+                    cb([]);
+                }
+
+                var decls = [],
+                    onDeclResolved = function(_, error) {
+                        if(error) {
+                            cb(null, error);
+                            return;
+                        }
+
+                        if(!--unresolvedDepsCnt) {
+                            var exports = [],
+                                i = 0, decl;
+                            while(decl = decls[i++]) {
+                                exports.push(decl.exports);
+                            }
+                            cb(exports);
+                        }
+                    },
+                    i = 0, len = unresolvedDepsCnt,
+                    dep, decl;
+
+                while(i < len) {
+                    dep = deps[i++];
+                    if(typeof dep === 'string') {
+                        if(!modulesStorage[dep]) {
+                            cb(null, buildModuleNotFoundError(dep, fromDecl));
+                            return;
+                        }
+
+                        decl = modulesStorage[dep].decl;
+                    }
+                    else {
+                        decl = dep;
+                    }
+
+                    decls.push(decl);
+
+                    startDeclResolving(decl, path, onDeclResolved);
+                }
+            },
+
+            startDeclResolving = function(decl, path, cb) {
+                if(decl.state === DECL_STATES.RESOLVED) {
+                    cb(decl.exports);
+                    return;
+                }
+                else if(decl.state === DECL_STATES.IN_RESOLVING) {
+                    curOptions.trackCircularDependencies && isDependenceCircular(decl, path)?
+                        cb(null, buildCircularDependenceError(decl, path)) :
+                        decl.dependents.push(cb);
+                    return;
+                }
+
+                decl.dependents.push(cb);
+
+                if(decl.prev && !curOptions.allowMultipleDeclarations) {
+                    provideError(decl, buildMultipleDeclarationError(decl));
+                    return;
+                }
+
+                curOptions.trackCircularDependencies && (path = path.slice()).push(decl);
+
+                var isProvided = false,
+                    deps = decl.prev? decl.deps.concat([decl.prev]) : decl.deps;
+
+                decl.state = DECL_STATES.IN_RESOLVING;
+                requireDeps(
+                    decl,
+                    deps,
+                    path,
+                    function(depDeclsExports, error) {
+                        if(error) {
+                            provideError(decl, error);
+                            return;
+                        }
+
+                        depDeclsExports.unshift(function(exports, error) {
+                            if(isProvided) {
+                                cb(null, buildDeclAreadyProvidedError(decl));
+                                return;
+                            }
+
+                            isProvided = true;
+                            error?
+                                provideError(decl, error) :
+                                provideDecl(decl, exports);
+                        });
+
+                        decl.fn.apply(
+                            {
+                                name   : decl.name,
+                                deps   : decl.deps,
+                                global : global
+                            },
+                            depDeclsExports);
+                    });
+            },
+
+            provideDecl = function(decl, exports) {
+                decl.exports = exports;
+                decl.state = DECL_STATES.RESOLVED;
+
+                var i = 0, dependent;
+                while(dependent = decl.dependents[i++]) {
+                    dependent(exports);
+                }
+
+                decl.dependents = undef;
+            },
+
+            provideError = function(decl, error) {
+                decl.state = DECL_STATES.NOT_RESOLVED;
+
+                var i = 0, dependent;
+                while(dependent = decl.dependents[i++]) {
+                    dependent(null, error);
+                }
+
+                decl.dependents = [];
+            };
+
+        return {
+            create     : create,
+            define     : define,
+            require    : require,
+            getState   : getState,
+            isDefined  : isDefined,
+            setOptions : setOptions,
+            getStat    : getStat
+        };
+    },
+
+    onError = function(e) {
+        nextTick(function() {
+            throw e;
+        });
+    },
+
+    buildModuleNotFoundError = function(name, decl) {
+        return Error(decl?
+            'Module "' + decl.name + '": can\'t resolve dependence "' + name + '"' :
+            'Required module "' + name + '" can\'t be resolved');
+    },
+
+    buildCircularDependenceError = function(decl, path) {
+        var strPath = [],
+            i = 0, pathDecl;
+        while(pathDecl = path[i++]) {
+            strPath.push(pathDecl.name);
+        }
+        strPath.push(decl.name);
+
+        return Error('Circular dependence has been detected: "' + strPath.join(' -> ') + '"');
+    },
+
+    buildDeclAreadyProvidedError = function(decl) {
+        return Error('Declaration of module "' + decl.name + '" has already been provided');
+    },
+
+    buildMultipleDeclarationError = function(decl) {
+        return Error('Multiple declarations of module "' + decl.name + '" have been detected');
+    },
+
+    isDependenceCircular = function(decl, path) {
+        var i = 0, pathDecl;
+        while(pathDecl = path[i++]) {
+            if(decl === pathDecl) {
+                return true;
             }
+        }
+        return false;
+    },
 
-            if (global.setImmediate) { // ie10
-                return function(fn) {
-                    enqueueFn(fn) && global.setImmediate(callFns);
-                };
-            }
+    nextTick = (function() {
+        var fns = [],
+            enqueueFn = function(fn) {
+                return fns.push(fn) === 1;
+            },
+            callFns = function() {
+                var fnsToCall = fns, i = 0, len = fns.length;
+                fns = [];
+                while(i < len) {
+                    fnsToCall[i++]();
+                }
+            };
 
-            if (global.postMessage && !global.opera) { // modern browsers
-                var isPostMessageAsync = true;
-                if (global.attachEvent) {
-                    var checkAsync = function() {
+        if(typeof process === 'object' && process.nextTick) { // nodejs
+            return function(fn) {
+                enqueueFn(fn) && process.nextTick(callFns);
+            };
+        }
+
+        if(global.setImmediate) { // ie10
+            return function(fn) {
+                enqueueFn(fn) && global.setImmediate(callFns);
+            };
+        }
+
+        if(global.postMessage && !global.opera) { // modern browsers
+            var isPostMessageAsync = true;
+            if(global.attachEvent) {
+                var checkAsync = function() {
                         isPostMessageAsync = false;
                     };
-                    global.attachEvent('onmessage', checkAsync);
-                    global.postMessage('__checkAsync', '*');
-                    global.detachEvent('onmessage', checkAsync);
-                }
-
-                if (isPostMessageAsync) {
-                    var msg = '__modules' + (+new Date()),
-                        onMessage = function(e) {
-                            if (e.data === msg) {
-                                e.stopPropagation && e.stopPropagation();
-                                callFns();
-                            }
-                        };
-
-                    global.addEventListener ?
-                        global.addEventListener('message', onMessage, true) :
-                        global.attachEvent('onmessage', onMessage);
-
-                    return function(fn) {
-                        enqueueFn(fn) && global.postMessage(msg, '*');
-                    };
-                }
+                global.attachEvent('onmessage', checkAsync);
+                global.postMessage('__checkAsync', '*');
+                global.detachEvent('onmessage', checkAsync);
             }
 
-            var doc = global.document;
-            if ('onreadystatechange' in doc.createElement('script')) { // ie6-ie8
-                var head = doc.getElementsByTagName('head')[0],
-                    createScript = function() {
-                        var script = doc.createElement('script');
-                        script.onreadystatechange = function() {
-                            script.parentNode.removeChild(script);
-                            script = script.onreadystatechange = null;
+            if(isPostMessageAsync) {
+                var msg = '__modules' + (+new Date()),
+                    onMessage = function(e) {
+                        if(e.data === msg) {
+                            e.stopPropagation && e.stopPropagation();
                             callFns();
-                        };
-                        head.appendChild(script);
+                        }
                     };
+
+                global.addEventListener?
+                    global.addEventListener('message', onMessage, true) :
+                    global.attachEvent('onmessage', onMessage);
 
                 return function(fn) {
-                    enqueueFn(fn) && createScript();
+                    enqueueFn(fn) && global.postMessage(msg, '*');
                 };
             }
+        }
 
-            return function(fn) { // old browsers
-                enqueueFn(fn) && setTimeout(callFns, 0);
+        var doc = global.document;
+        if('onreadystatechange' in doc.createElement('script')) { // ie6-ie8
+            var head = doc.getElementsByTagName('head')[0],
+                createScript = function() {
+                    var script = doc.createElement('script');
+                    script.onreadystatechange = function() {
+                        script.parentNode.removeChild(script);
+                        script = script.onreadystatechange = null;
+                        callFns();
+                    };
+                    head.appendChild(script);
+                };
+
+            return function(fn) {
+                enqueueFn(fn) && createScript();
             };
-        })();
+        }
 
-    if (typeof exports === 'object') {
-        module.exports = create();
-    } else {
-        global.modules = create();
-    }
+        return function(fn) { // old browsers
+            enqueueFn(fn) && setTimeout(callFns, 0);
+        };
+    })();
+
+if(typeof exports === 'object') {
+    module.exports = create();
+}
+else {
+    global.modules = create();
+}
 
 })(typeof window !== 'undefined' ? window : global);
 
-(function(global) {
+(function (global) {
     var dataAttrsOptions = [
         'debug-mode',
         'slides-selector',
@@ -434,8 +429,8 @@
         options: global.showerOptions || {}
     };
 
-    document.addEventListener('DOMContentLoaded', function() {
-        global.shower.modules.require('shower.defaultOptions', function(defaultOptions) {
+    document.addEventListener('DOMContentLoaded', function () {
+        global.shower.modules.require('shower.defaultOptions', function (defaultOptions) {
             var hasOptions = global.hasOwnProperty('showerOptions');
             var options = global.shower.options;
             var containerSelector = options.shower_selector || defaultOptions.container_selector;
@@ -450,7 +445,7 @@
 
             if (getDataAttr('auto-init') !== 'false' || (hasOptions && autoInit)) {
                 if (!hasOptions) {
-                    dataAttrsOptions.forEach(function(name) {
+                    dataAttrsOptions.forEach(function (name) {
                         var value = getDataAttr(name);
                         // Null for getAttr, undefined for dataset.
                         if (value !== null && typeof value !== 'undefined') {
@@ -459,7 +454,7 @@
                     });
                 }
 
-                global.shower.modules.require(['shower'], function(sh) {
+                global.shower.modules.require(['shower'], function (sh) {
                     sh.init({
                         container: element,
                         options: options
@@ -482,67 +477,9 @@
     }
 })(window);
 
-function reloadSlide(global){
-    var dataAttrsOptions = [
-        'debug-mode',
-        'slides-selector',
-        'hotkeys'
-    ];
-
-    global.shower = {
-        modules: modules.create(),
-        options: global.showerOptions || {}
-    };
-
-    global.shower.modules.require('shower.defaultOptions', function(defaultOptions) {
-        var hasOptions = global.hasOwnProperty('showerOptions');
-        var options = global.shower.options;
-        var containerSelector = options.shower_selector || defaultOptions.container_selector;
-        var element = document.querySelector(containerSelector);
-        var getDataAttr = getData.bind(this, element);
-        var autoInit = typeof options.auto_init !== 'undefined' ?
-            options.auto_init : true;
-
-        if (!element) {
-            throw new Error('Shower element with selector ' + containerSelector + ' not found.');
-        }
-
-        if (getDataAttr('auto-init') !== 'false' || (hasOptions && autoInit)) {
-            if (!hasOptions) {
-                dataAttrsOptions.forEach(function(name) {
-                    var value = getDataAttr(name);
-                    // Null for getAttr, undefined for dataset.
-                    if (value !== null && typeof value !== 'undefined') {
-                        options[name.replace(/-/g, '_')] = value;
-                    }
-                });
-            }
-
-            global.shower.modules.require(['shower'], function(sh) {
-                sh.init({
-                    container: element,
-                    options: options
-                });
-            });
-        }
-    });
-
-    /**
-     * Get data-attr value.
-     * @param {HTMLElement} element
-     * @param {String} name Data property
-     * @returns {Object}
-     */
-    function getData(element, name) {
-        return element.dataset ?
-            element.dataset[name] :
-            element.getAttribute('data-' + name);
-    }
-}
-
 shower.modules.define('shower', [
     'shower.global'
-], function(provide, showerGlobal) {
+], function (provide, showerGlobal) {
     provide(showerGlobal);
 });
 
@@ -553,7 +490,7 @@ shower.modules.define('Emitter', [
     'emitter.Event',
     'emitter.EventGroup',
     'util.extend'
-], function(provide, EmitterEvent, EventGroup, extend) {
+], function (provide, EmitterEvent, EventGroup, extend) {
 
     /**
      * @class
@@ -585,7 +522,7 @@ shower.modules.define('Emitter', [
          * @param {number} [priority = 0]
          * @returns {Emitter}
          */
-        on: function(types, callback, context, priority) {
+        on: function (types, callback, context, priority) {
             if (typeof callback === 'undefined') {
                 throw new Error('Callback is not defined.');
             }
@@ -611,7 +548,7 @@ shower.modules.define('Emitter', [
          * @param {number} [priority = 0]
          * @returns {Emitter}
          */
-        off: function(types, callback, context, priority) {
+        off: function (types, callback, context, priority) {
             priority = priority || 0;
 
             if (typeof types == 'string') {
@@ -633,8 +570,8 @@ shower.modules.define('Emitter', [
          * @param {object} [context] Callback context.
          * @returns {Emitter}
          */
-        once: function(eventType, callback, context, priority) {
-            var handler = function(event) {
+        once: function (eventType, callback, context, priority) {
+            var handler = function (event) {
                 this.off(eventType, handler, this, priority);
                 if (context) {
                     callback.call(context, event);
@@ -652,7 +589,7 @@ shower.modules.define('Emitter', [
          * @param {string} eventType
          * @param {(event.Event|object)} eventObject
          */
-        emit: function(eventType, eventObject) {
+        emit: function (eventType, eventObject) {
             var event = eventObject;
             var listeners = this._listeners;
 
@@ -676,7 +613,7 @@ shower.modules.define('Emitter', [
          * @param {object} eventData
          * @param {object} target
          */
-        createEventObject: function(type, eventData, target) {
+        createEventObject: function (type, eventData, target) {
             var data = {
                 target: target,
                 type: type
@@ -688,7 +625,7 @@ shower.modules.define('Emitter', [
         /**
          * @param {Emitter} parent
          */
-        setParent: function(parent) {
+        setParent: function (parent) {
             if (this._parent != parent) {
                 this._parent = parent;
             }
@@ -697,15 +634,15 @@ shower.modules.define('Emitter', [
         /**
          * @returns {(Emitter|null)}
          */
-        getParent: function() {
+        getParent: function () {
             return this._parent;
         },
 
-        group: function() {
+        group: function () {
             return new EventGroup(this);
         },
 
-        _addListener: function(eventType, callback, context, priority) {
+        _addListener: function (eventType, callback, context, priority) {
             var listener = {
                 callback: callback,
                 context: context,
@@ -719,7 +656,7 @@ shower.modules.define('Emitter', [
             }
         },
 
-        _removeListener: function(eventType, callback, context, priority) {
+        _removeListener: function (eventType, callback, context, priority) {
             var listeners = this._listeners[eventType];
             var listener;
 
@@ -750,13 +687,13 @@ shower.modules.define('Emitter', [
          * @ignore
          * @param {string} eventType
          */
-        _clearType: function(eventType) {
+        _clearType: function (eventType) {
             if (this._listeners.hasOwnProperty(eventType)) {
                 delete this._listeners[eventType];
             }
         },
 
-        _callListeners: function(listeners, event) {
+        _callListeners: function (listeners, event) {
             var i = listeners.length - 1;
 
             // Sort listeners by priority
@@ -785,7 +722,7 @@ shower.modules.define('Emitter', [
 
 shower.modules.define('emitter.Event', [
     'util.extend'
-], function(provide, extend) {
+], function (provide, extend) {
 
     /**
      * @class
@@ -801,30 +738,30 @@ shower.modules.define('emitter.Event', [
         this._stopPropagation = false;
     }
 
-    extend(Event.prototype, /** @lends event.Event.prototype */ {
+    extend(Event.prototype, /** @lends event.Event.prototype */{
         /**
          * @param {string} key
          * @returns {object}
          */
-        get: function(key) {
+        get: function (key) {
             return this._data[key];
         },
 
-        preventDefault: function() {
+        preventDefault: function () {
             this._preventDefault = true;
             return this._preventDefault;
         },
 
-        defaultPrevented: function() {
+        defaultPrevented: function () {
             return this._preventDefault;
         },
 
-        stopPropagation: function() {
+        stopPropagation: function () {
             this._stopPropagation = true;
             return this._stopPropagation;
         },
 
-        isPropagationStopped: function() {
+        isPropagationStopped: function () {
             return this._stopPropagation;
         }
     });
@@ -834,7 +771,7 @@ shower.modules.define('emitter.Event', [
 
 shower.modules.define('emitter.EventGroup', [
     'util.extend'
-], function(provide, extend) {
+], function (provide, extend) {
 
     /**
      * @class
@@ -877,7 +814,7 @@ shower.modules.define('emitter.EventGroup', [
          * @param {object} [context]
          * @returns {event.EventGroup}
          */
-        on: function(types, callback, context) {
+        on: function (types, callback, context) {
             if (Array.isArray(types)) {
                 for (var i = 0, k = types.length; i < k; i++) {
                     this._listeners.push(types[i], callback, context);
@@ -899,7 +836,7 @@ shower.modules.define('emitter.EventGroup', [
          * @param {object} context
          * @returns {event.EventGroup}
          */
-        off: function(types, callback, context) {
+        off: function (types, callback, context) {
             if (Array.isArray(types)) {
                 for (var i = 0, k = types.length; i < k; i++) {
                     this._removeListener(types[i], callback, context);
@@ -916,7 +853,7 @@ shower.modules.define('emitter.EventGroup', [
          *
          * @returns {event.EventGroup}
          */
-        offAll: function() {
+        offAll: function () {
             for (var i = 0, k = this._listeners.length; i < k; i += 3) {
                 this.events.off(
                     this._listeners[i],
@@ -929,7 +866,7 @@ shower.modules.define('emitter.EventGroup', [
             return this;
         },
 
-        _removeListener: function(type, callback, context) {
+        _removeListener: function (type, callback, context) {
             var index = this._listeners.indexOf(type, 0);
             while (index != -1) {
                 if (this._listeners[index + 1] == callback &&
@@ -954,7 +891,7 @@ shower.modules.define('Plugins', [
     'Emitter',
     'util.bind',
     'util.extend'
-], function(provide, EventEmitter, bind, extend) {
+], function (provide, EventEmitter, bind, extend) {
 
     /**
      * @class
@@ -980,7 +917,7 @@ shower.modules.define('Plugins', [
 
     extend(Plugins.prototype, /** @lends shower.Plugins.prototype */ {
 
-        destroy: function() {
+        destroy: function () {
             this._showerGlobal.events.off('init', this._onShowerInit, this);
 
             this._plugins = null;
@@ -993,7 +930,7 @@ shower.modules.define('Plugins', [
          * @param {object} [options] Custom options for plugin.
          * @returns {shower.Plugins}
          */
-        add: function(name, options) {
+        add: function (name, options) {
             if (this._plugins.hasOwnProperty(name)) {
                 throw new Error('Plugin ' + name + ' already exist.');
             }
@@ -1012,7 +949,7 @@ shower.modules.define('Plugins', [
          * @param {String} name
          * @returns {shower.Plugins}
          */
-        remove: function(name) {
+        remove: function (name) {
             if (!this._plugins.hasOwnProperty(name)) {
                 throw new Error('Plugin ' + name + ' not found.');
             }
@@ -1033,7 +970,7 @@ shower.modules.define('Plugins', [
          * @param {Shower} [shower] Shower instance.
          * @returns {(object|null)} Instanced plugin or plugin class if shower var is not defined.
          */
-        get: function(name, shower) {
+        get: function (name, shower) {
             var plugin = this._plugins[name];
             var pluginInstance;
 
@@ -1050,16 +987,16 @@ shower.modules.define('Plugins', [
             return pluginInstance;
         },
 
-        _requireAndAdd: function(plugin) {
-            shower.modules.require(plugin.name, function(pluginClass) {
+        _requireAndAdd: function (plugin) {
+            shower.modules.require(plugin.name, function (pluginClass) {
                 plugin.class = pluginClass;
                 this._plugins[plugin.name] = plugin;
                 this._instancePlugin(plugin);
             }.bind(this));
         },
 
-        _instancePlugin: function(plugin) {
-            this._showerInstances.forEach(function(shower) {
+        _instancePlugin: function (plugin) {
+            this._showerInstances.forEach(function (shower) {
                 this._instance(plugin, shower);
             }, this);
 
@@ -1068,7 +1005,7 @@ shower.modules.define('Plugins', [
             });
         },
 
-        _instanceFor: function(shower) {
+        _instanceFor: function (shower) {
             for (var name in this._plugins) {
                 if (this._plugins.hasOwnProperty(name)) {
                     this._instance(this._plugins[name], shower);
@@ -1076,7 +1013,7 @@ shower.modules.define('Plugins', [
             }
         },
 
-        _instance: function(plugin, shower) {
+        _instance: function (plugin, shower) {
             var options = plugin.options || shower.options.get('plugin_' + plugin.name);
             this._instances.push({
                 shower: shower,
@@ -1085,7 +1022,7 @@ shower.modules.define('Plugins', [
             });
         },
 
-        _onShowerInit: function(event) {
+        _onShowerInit: function (event) {
             var shower = event.get('shower');
             this._instanceFor(shower);
         }
@@ -1097,7 +1034,7 @@ shower.modules.define('Plugins', [
 shower.modules.define('shower.global', [
     'Emitter',
     'Plugins'
-], function(provide, EventEmitter, Plugins) {
+], function (provide, EventEmitter, Plugins) {
 
     var inited = [];
 
@@ -1120,12 +1057,12 @@ shower.modules.define('shower.global', [
          *     sh.go(2);
          * });
          */
-        ready: function(callback) {
+        ready: function (callback) {
             if (callback) {
                 if (inited.length) {
                     inited.forEach(callback);
                 } else {
-                    this.events.once('init', function(e) {
+                    this.events.once('init', function (e) {
                         callback(e.get('shower'));
                     });
                 }
@@ -1149,10 +1086,10 @@ shower.modules.define('shower.global', [
          *     context: this
          * });
          */
-        init: function(initOptions) {
+        init: function (initOptions) {
             initOptions = initOptions || {};
 
-            shower.modules.require(['Shower'], function(Shower) {
+            shower.modules.require(['Shower'], function (Shower) {
                 new Shower(initOptions.container, initOptions.options);
             });
         },
@@ -1160,7 +1097,7 @@ shower.modules.define('shower.global', [
         /**
          * @returns {Shower[]} Array of shower players.
          */
-        getInited: function() {
+        getInited: function () {
             return inited.slice();
         }
     };
@@ -1170,9 +1107,7 @@ shower.modules.define('shower.global', [
      * @field
      * @type {Plugins}
      */
-    sh.events = new EventEmitter({
-        context: sh
-    });
+    sh.events = new EventEmitter({context: sh});
 
     /**
      * @name shower.events
@@ -1181,7 +1116,7 @@ shower.modules.define('shower.global', [
      */
     sh.plugins = new Plugins(sh);
 
-    sh.events.on('notify', function(e) {
+    sh.events.on('notify', function (e) {
         var showerInstance = e.get('shower');
         inited.push(showerInstance);
         sh.events.emit('init', e);
@@ -1199,7 +1134,7 @@ shower.modules.define('Options', [
     'util.Store',
     'util.extend',
     'util.inherit'
-], function(provide, EventEmitter, Monitor, Store, extend, inherit) {
+], function (provide, EventEmitter, Monitor, Store, extend, inherit) {
 
     /**
      * @class
@@ -1230,7 +1165,7 @@ shower.modules.define('Options', [
          * @param {object} [value]
          * @returns {Options} Self.
          */
-        set: function(name, value) {
+        set: function (name, value) {
             var changed = [];
             if (typeof name === 'string') {
                 Options.super.set.call(this, name, value);
@@ -1241,7 +1176,7 @@ shower.modules.define('Options', [
 
             } else {
                 var options = name || {};
-                Object.keys(options).forEach(function(optionName) {
+                Object.keys(options).forEach(function (optionName) {
                     var optionValue = options[optionName];
                     Options.super.set.call(this, optionName, optionValue);
                     changed.push({
@@ -1252,24 +1187,20 @@ shower.modules.define('Options', [
             }
 
             if (changed.length) {
-                this.events.emit('set', {
-                    items: changed
-                });
+                this.events.emit('set', {items: changed});
             }
 
             return this;
         },
 
-        unset: function(name) {
+        unset: function (name) {
             Options.super.unset(this, name);
-            this.events.emit('unset', {
-                name: name
-            });
+            this.events.emit('unset', {name: name});
 
             return this;
         },
 
-        getMonitor: function() {
+        getMonitor: function () {
             return new Monitor(this);
         }
     });
@@ -1282,7 +1213,7 @@ shower.modules.define('Options', [
  */
 shower.modules.define('options.Monitor', [
     'util.extend'
-], function(provide, extend) {
+], function (provide, extend) {
 
     /**
      * @class Monitoring fields change.
@@ -1297,9 +1228,9 @@ shower.modules.define('options.Monitor', [
         this._fieldsHanders = {};
     }
 
-    extend(Monitor.prototype, /** @lends options.Monitor.prototype */ {
+    extend(Monitor.prototype, /** @lends options.Monitor.prototype */{
 
-        destroy: function() {
+        destroy: function () {
             this._options = null;
             this._optionsEvents.offAll();
             this._fieldsHanders = null;
@@ -1311,7 +1242,7 @@ shower.modules.define('options.Monitor', [
          * @param {Object} [context]
          * @returns {options.Monitor} Self.
          */
-        add: function(field, callback, context) {
+        add: function (field, callback, context) {
             if (Array.prototype.isArray.call(null, field)) {
                 var fields = field;
                 for (var fieldName in fields) {
@@ -1332,7 +1263,7 @@ shower.modules.define('options.Monitor', [
          * @param {object} [context]
          * @returns {options.Monitor} Self.
          */
-        remove: function(field, callback, context) {
+        remove: function (field, callback, context) {
             if (Array.prototype.isArray.call(null, field)) {
                 var fields = field;
                 for (var fieldName in fields) {
@@ -1350,24 +1281,25 @@ shower.modules.define('options.Monitor', [
         /**
          * @returns {Options} Options.
          */
-        getOptions: function() {
+        getOptions: function () {
             return this._options;
         },
 
-        _onOptionsChange: function(event) {
-            var fieldsUpdated = event.get('type') === 'unset' ? [event.get('name')] :
+        _onOptionsChange: function (event) {
+            var fieldsUpdated = event.get('type') === 'unset' ?
+                [event.get('name')] :
                 event.get('items');
 
-            fieldsUpdated.forEach(function(field) {
+            fieldsUpdated.forEach(function (field) {
                 if (this._fieldsHanders.hasOwnProperty(field)) {
-                    this._fieldsHanders[field].forEach(function(handler) {
+                    this._fieldsHanders[field].forEach(function (handler) {
                         handler.callback.call(handler.context, this._options.get(field));
                     });
                 }
             }, this);
         },
 
-        _addHandler: function(field, callback, context) {
+        _addHandler: function (field, callback, context) {
             var handler = {
                 callback: callback,
                 context: context
@@ -1380,13 +1312,13 @@ shower.modules.define('options.Monitor', [
             }
         },
 
-        _remodeHandler: function(field, callback, context) {
+        _remodeHandler: function (field, callback, context) {
             if (!this._fieldsHanders.hasOwnProperty(field)) {
                 throw new Error('Remove undefined handler for ' + field + ' field');
             }
 
             var fieldsHanders = this._fieldsHanders[field];
-            var handler = fieldsHanders.filter(function(hander) {
+            var handler = fieldsHanders.filter(function (hander) {
                 return hander.callback === callback && hander.context === context;
             })[0];
 
@@ -1414,7 +1346,7 @@ shower.modules.define('Shower', [
     'shower.Location',
     'shower.slidesParser',
     'util.extend'
-], function(provide, EventEmitter, Options, showerGlobal, defaultShowerOptions,
+], function (provide, EventEmitter, Options, showerGlobal, defaultShowerOptions,
     Container, Player, Location, defaultSlidesParser, extend) {
 
     /**
@@ -1444,9 +1376,7 @@ shower.modules.define('Shower', [
     function Shower(container, options) {
         options = options || {};
 
-        this.events = new EventEmitter({
-            context: this
-        });
+        this.events = new EventEmitter({context: this});
         this.options = new Options({}, defaultShowerOptions, options);
 
         var containerElement = container || this.options.get('container_selector');
@@ -1476,19 +1406,17 @@ shower.modules.define('Shower', [
         this.location = new Location(this);
 
         // Notify abount new shower instance.
-        showerGlobal.events.emit('notify', {
-            shower: this
-        });
+        showerGlobal.events.emit('notify', {shower: this});
 
         this._playerListeners = this.player.events.group()
             .on('activate', this._onPlayerSlideActivate, this);
     }
 
-    extend(Shower.prototype, /** @lends Shower.prototype */ {
+    extend(Shower.prototype, /** @lends Shower.prototype */{
         /**
          * Destroy Shower.
          */
-        destroy: function() {
+        destroy: function () {
             this.events.emit('destroy');
 
             this.location.destroy();
@@ -1504,7 +1432,7 @@ shower.modules.define('Shower', [
          * @param {(Slide|Slide[])} slide Slide or array or slides.
          * @returns {Shower}
          */
-        add: function(slide) {
+        add: function (slide) {
             if (Array.isArray.call(null, slide)) {
                 for (var i = 0, k = slide.length; i < k; i++) {
                     this._addSlide(slide[i]);
@@ -1522,7 +1450,7 @@ shower.modules.define('Shower', [
          * @param {(Slide|number)} slide Slide {@link Slide} or slide index.
          * @returns {Shower} Self link.
          */
-        remove: function(slide) {
+        remove: function (slide) {
             var slidePosition;
 
             if (typeof slide == 'number') {
@@ -1549,21 +1477,21 @@ shower.modules.define('Shower', [
          * @param {number} index Slide index.
          * @returns {Slide} Slide by index.
          */
-        get: function(index) {
+        get: function (index) {
             return this._slides[index];
         },
 
         /**
          * @returns {Slide[]} Array with slides {@link Slide}.
          */
-        getSlides: function() {
+        getSlides: function () {
             return this._slides.slice();
         },
 
         /**
          * @returns {number} Slides count.
          */
-        getSlidesCount: function() {
+        getSlidesCount: function () {
             return this._slides.length;
         },
 
@@ -1571,7 +1499,7 @@ shower.modules.define('Shower', [
          * @param {Slide} slide
          * @returns {number} Slide index or -1 of slide not found.
          */
-        getSlideIndex: function(slide) {
+        getSlideIndex: function (slide) {
             return this._slides.indexOf(slide);
         },
 
@@ -1580,7 +1508,7 @@ shower.modules.define('Shower', [
          *
          * @returns {Shower}
          */
-        disableHotkeys: function() {
+        disableHotkeys: function () {
             this._isHotkeysOn = false;
             return this;
         },
@@ -1590,7 +1518,7 @@ shower.modules.define('Shower', [
          *
          * @returns {Shower}
          */
-        enableHotkeys: function() {
+        enableHotkeys: function () {
             this._isHotkeysOn = true;
             return this;
         },
@@ -1598,14 +1526,14 @@ shower.modules.define('Shower', [
         /**
          * @returns {boolean} Hotkeys is enabled.
          */
-        isHotkeysEnabled: function() {
+        isHotkeysEnabled: function () {
             return this._isHotkeysOn;
         },
 
         /**
          * @returns {HTMLElement} Live region element.
          */
-        getLiveRegion: function() {
+        getLiveRegion: function () {
             return this._liveRegion;
         },
 
@@ -1615,23 +1543,23 @@ shower.modules.define('Shower', [
          * @param {string} content New content for live region.
          * @returns {Shower}
          */
-        updateLiveRegion: function(content) {
+        updateLiveRegion: function (content) {
             this._liveRegion.innerHTML = content;
             return this;
         },
 
-        _onPlayerSlideActivate: function(event) {
+        _onPlayerSlideActivate: function (event) {
             var currentSlide = event.get('slide');
             this.updateLiveRegion(currentSlide.getContent());
         },
 
-        _initSlides: function() {
+        _initSlides: function () {
             var slidesParser = this.options.get('slides_parser') || defaultSlidesParser;
             var slides = slidesParser(this.container.getElement(), this.options.get('slides_selector'));
             this.add(slides);
         },
 
-        _addSlide: function(slide) {
+        _addSlide: function (slide) {
             slide.state.set('index', this._slides.length);
             this._slides.push(slide);
 
@@ -1640,7 +1568,7 @@ shower.modules.define('Shower', [
             });
         },
 
-        _initLiveRegion: function() {
+        _initLiveRegion: function () {
             var liveRegion = document.createElement('section');
             liveRegion.setAttribute('role', 'region');
             liveRegion.setAttribute('aria-live', 'assertive');
@@ -1662,7 +1590,7 @@ shower.modules.define('Shower', [
 shower.modules.define('shower.Container', [
     'Emitter',
     'util.extend'
-], function(provide, EventEmitter, extend) {
+], function (provide, EventEmitter, extend) {
     /**
      * @typedef {object} HTMLElement
      */
@@ -1690,9 +1618,9 @@ shower.modules.define('shower.Container', [
         this.init();
     }
 
-    extend(Container.prototype, /** @lends shower.Container.prototype */ {
+    extend(Container.prototype, /** @lends shower.Container.prototype */{
 
-        init: function() {
+        init: function () {
             var bodyClassList = document.body.classList;
             var showerOptions = this._shower.options;
 
@@ -1707,7 +1635,7 @@ shower.modules.define('shower.Container', [
             this._setupListeners();
         },
 
-        destroy: function() {
+        destroy: function () {
             this._clearListeners();
             this._element = null;
             this._shower = null;
@@ -1717,7 +1645,7 @@ shower.modules.define('shower.Container', [
         /**
          * @returns {HTMLElement} Container element.
          */
-        getElement: function() {
+        getElement: function () {
             return this._element;
         },
 
@@ -1727,7 +1655,7 @@ shower.modules.define('shower.Container', [
          *
          * @returns {shower.Container}
          */
-        enterSlideMode: function() {
+        enterSlideMode: function () {
             var bodyClassList = document.body.classList;
             var showerOptions = this._shower.options;
 
@@ -1748,7 +1676,7 @@ shower.modules.define('shower.Container', [
          *
          * @returns {shower.Container}
          */
-        exitSlideMode: function() {
+        exitSlideMode: function () {
             var elementClassList = document.body.classList;
             var showerOptions = this._shower.options;
 
@@ -1769,7 +1697,7 @@ shower.modules.define('shower.Container', [
          *
          * @returns {Boolean} Slide mode state.
          */
-        isSlideMode: function() {
+        isSlideMode: function () {
             return this._isSlideMode;
         },
 
@@ -1778,7 +1706,7 @@ shower.modules.define('shower.Container', [
          *
          * @returns {shower.Container}
          */
-        scrollToCurrentSlide: function() {
+        scrollToCurrentSlide: function () {
             var activeSlideClassName = this._shower.options.get('slide_active_classname');
             var slideElement = this._element.querySelector('.' + activeSlideClassName);
             if (slideElement) {
@@ -1788,7 +1716,7 @@ shower.modules.define('shower.Container', [
             return this;
         },
 
-        _setupListeners: function() {
+        _setupListeners: function () {
             this._showerListeners = this._shower.events.group()
                 .on('slideadd', this._onSlideAdd, this)
                 .on('slideremove', this._onSlideRemove, this);
@@ -1797,14 +1725,14 @@ shower.modules.define('shower.Container', [
             document.addEventListener('keydown', this._onKeyDown.bind(this));
         },
 
-        _clearListeners: function() {
+        _clearListeners: function () {
             this._showerListeners.offAll();
 
             window.removeEventListener('resize', this._onResize.bind(this));
             document.removeEventListener('keydown', this._onKeyDown.bind(this));
         },
 
-        _getTransformScale: function() {
+        _getTransformScale: function () {
             var denominator = Math.max(
                 document.body.clientWidth / window.innerWidth,
                 document.body.clientHeight / window.innerHeight
@@ -1813,43 +1741,43 @@ shower.modules.define('shower.Container', [
             return 'scale(' + (1 / denominator) + ')';
         },
 
-        _applyTransform: function(transformValue) {
+        _applyTransform: function (transformValue) {
             [
                 'WebkitTransform',
                 'MozTransform',
                 'msTransform',
                 'OTransform',
                 'transform'
-            ].forEach(function(property) {
+            ].forEach(function (property) {
                 document.body.style[property] = transformValue;
             });
         },
 
-        _onResize: function() {
+        _onResize: function () {
             if (this.isSlideMode()) {
                 this._applyTransform(this._getTransformScale());
             }
         },
 
-        _onSlideAdd: function(e) {
+        _onSlideAdd: function (e) {
             var slide = e.get('slide');
             slide.events
                 .on('click', this._onSlideClick, this);
         },
 
-        _onSlideRemove: function(e) {
+        _onSlideRemove: function (e) {
             var slide = e.get('slide');
             slide.events
                 .off('click', this._onSlideClick, this);
         },
 
-        _onSlideClick: function() {
+        _onSlideClick: function () {
             if (!this._isSlideMode) {
                 this.enterSlideMode();
             }
         },
 
-        _onKeyDown: function(e) {
+        _onKeyDown: function (e) {
             if (!this._shower.isHotkeysEnabled()) {
                 return;
             }
@@ -1896,7 +1824,7 @@ shower.modules.define('shower.Container', [
 shower.modules.define('shower.Location', [
     'util.SessionStore',
     'util.extend'
-], function(provide, SessionStore, extend) {
+], function (provide, SessionStore, extend) {
 
     /**
      * @typedef {object} slideInfo
@@ -1914,9 +1842,7 @@ shower.modules.define('shower.Location', [
         this._shower = shower;
 
         var sessionStoreKey = shower.options.get('sessionstore_key') + '-shower.Location';
-        this.state = new SessionStore(sessionStoreKey, {
-            isSlideMode: false
-        });
+        this.state = new SessionStore(sessionStoreKey, {isSlideMode: false});
 
         this._showerListeners = null;
         this._playerListeners = null;
@@ -1928,9 +1854,9 @@ shower.modules.define('shower.Location', [
         this._init();
     }
 
-    extend(Location.prototype, /** @lends shower.Location.prototype */ {
+    extend(Location.prototype, /** @lends shower.Location.prototype */{
 
-        destroy: function() {
+        destroy: function () {
             this._clearListeners();
         },
 
@@ -1939,11 +1865,11 @@ shower.modules.define('shower.Location', [
          * - slide (index or id);
          * - slide mode.
          */
-        save: function() {
+        save: function () {
             this.state.set('isSlideMode', this._isSlideMode());
         },
 
-        _init: function() {
+        _init: function () {
             var shower = this._shower;
             var currentSlideId = window.location.hash.substr(1);
             var slideInfo;
@@ -1963,7 +1889,7 @@ shower.modules.define('shower.Location', [
             }
         },
 
-        _setupListeners: function() {
+        _setupListeners: function () {
             var shower = this._shower;
 
             this._playerListeners = shower.player.events.group()
@@ -1975,7 +1901,7 @@ shower.modules.define('shower.Location', [
             window.addEventListener('popstate', this._onPopstate.bind(this));
         },
 
-        _clearListeners: function() {
+        _clearListeners: function () {
             window.removeEventListener('popstate', this._onPopstate.bind(this));
             this._playerListeners.offAll();
             this._containerListener.offAll();
@@ -1986,7 +1912,7 @@ shower.modules.define('shower.Location', [
          * @param {string} slideId
          * @return {slideInfo} Slide info object.
          */
-        _getSlideById: function(slideId) {
+        _getSlideById: function (slideId) {
             var slides = this._shower.getSlides();
             var slide;
             var index;
@@ -2005,21 +1931,21 @@ shower.modules.define('shower.Location', [
             };
         },
 
-        _onSlideActivate: function(e) {
+        _onSlideActivate: function (e) {
             window.location.hash = e.get('slide').getId();
             this._setTitle();
         },
 
-        _onContainerSlideModeChange: function() {
+        _onContainerSlideModeChange: function () {
             this._setTitle();
             this.save();
         },
 
-        _isSlideMode: function() {
+        _isSlideMode: function () {
             return this._shower.container.isSlideMode();
         },
 
-        _onPopstate: function() {
+        _onPopstate: function () {
             var shower = this._shower;
             var slideId = window.location.hash.substr(1);
             var slideInfo;
@@ -2031,7 +1957,7 @@ shower.modules.define('shower.Location', [
             // but it not fires on hash change
             if (this._isSlideMode() && currentSlideNumber === -1) {
                 shower.player.go(0);
-                // In List mode, go to first slide only if hash id is invalid.
+            // In List mode, go to first slide only if hash id is invalid.
             } else if (currentSlideNumber === -1 && window.location.hash !== '') {
                 shower.player.go(0);
             }
@@ -2042,7 +1968,7 @@ shower.modules.define('shower.Location', [
             }
         },
 
-        _setTitle: function() {
+        _setTitle: function () {
             var title = document.title;
             var isSlideMode = this._isSlideMode();
             var currentSlide = this._shower.player.getCurrentSlide();
@@ -2069,7 +1995,7 @@ shower.modules.define('shower.Location', [
 shower.modules.define('shower.Player', [
     'Emitter',
     'util.extend'
-], function(provide, EventEmitter, extend) {
+], function (provide, EventEmitter, extend) {
 
     /**
      * @class
@@ -2097,7 +2023,7 @@ shower.modules.define('shower.Player', [
 
     extend(Player.prototype, /** @lends shower.Player.prototype */ {
 
-        init: function() {
+        init: function () {
             this._showerListeners = this._shower.events.group()
                 .on('slideadd', this._onSlideAdd, this)
                 .on('slideremove', this._onSlideRemove, this)
@@ -2110,7 +2036,7 @@ shower.modules.define('shower.Player', [
             document.addEventListener('keydown', this._onKeyDown.bind(this));
         },
 
-        destroy: function() {
+        destroy: function () {
             this._showerListeners.offAll();
             this._playerListeners.offAll();
 
@@ -2126,7 +2052,7 @@ shower.modules.define('shower.Player', [
          *
          * @returns {shower.Player}
          */
-        next: function() {
+        next: function () {
             this.events.emit('next');
             return this;
         },
@@ -2136,7 +2062,7 @@ shower.modules.define('shower.Player', [
          *
          * @returns {shower.Player}
          */
-        prev: function() {
+        prev: function () {
             this.events.emit('prev');
             return this;
         },
@@ -2146,7 +2072,7 @@ shower.modules.define('shower.Player', [
          *
          * @returns {shower.Player}
          */
-        first: function() {
+        first: function () {
             this.go(0);
             return this;
         },
@@ -2156,7 +2082,7 @@ shower.modules.define('shower.Player', [
          *
          * @returns {shower.Player}
          */
-        last: function() {
+        last: function () {
             this.go(this._shower.getSlidesCount() - 1);
             return this;
         },
@@ -2167,7 +2093,7 @@ shower.modules.define('shower.Player', [
          * @param {number | Slide} index Slide index to activate.
          * @returns {shower.Player}
          */
-        go: function(index) {
+        go: function (index) {
             // If go by slide istance.
             if (typeof index !== 'number') {
                 index = this._shower.getSlideIndex(index);
@@ -2202,22 +2128,22 @@ shower.modules.define('shower.Player', [
         /**
          * @returns {Slide} Current active slide.
          */
-        getCurrentSlide: function() {
+        getCurrentSlide: function () {
             return this._currentSlide;
         },
 
         /**
          * @returns {Number} Current active slide index.
          */
-        getCurrentSlideIndex: function() {
+        getCurrentSlideIndex: function () {
             return this._currentSlideNumber;
         },
 
-        _onPrev: function() {
+        _onPrev: function () {
             this._changeSlide(this._currentSlideNumber - 1);
         },
 
-        _onNext: function() {
+        _onNext: function () {
             this._changeSlide(this._currentSlideNumber + 1);
         },
 
@@ -2225,32 +2151,32 @@ shower.modules.define('shower.Player', [
          * @ignore
          * @param {number} index Slide index.
          */
-        _changeSlide: function(index) {
+        _changeSlide: function (index) {
             this.go(index);
         },
 
-        _onSlideAdd: function(e) {
+        _onSlideAdd: function (e) {
             var slide = e.get('slide');
 
             slide.events
                 .on('activate', this._onSlideActivate, this);
         },
 
-        _onSlideRemove: function(e) {
+        _onSlideRemove: function (e) {
             var slide = e.get('slide');
 
             slide.events
                 .off('activate', this._onSlideActivate, this);
         },
 
-        _onSlideActivate: function(e) {
+        _onSlideActivate: function (e) {
             var slide = e.get('slide');
             var slideNumber = this._shower.getSlideIndex(slide);
 
             this.go(slideNumber);
         },
 
-        _onKeyDown: function(e) {
+        _onKeyDown: function (e) {
             if (!this._shower.isHotkeysEnabled()) {
                 return;
             }
@@ -2265,9 +2191,7 @@ shower.modules.define('shower.Player', [
                 case 37: // Left
                 case 72: // H
                 case 75: // K
-                    if (e.altKey || e.ctrlKey || e.metaKey) {
-                        return;
-                    }
+                    if (e.altKey || e.ctrlKey || e.metaKey) { return; }
                     e.preventDefault();
                     this.prev();
                     break;
@@ -2277,9 +2201,7 @@ shower.modules.define('shower.Player', [
                 case 39: // Right
                 case 76: // L
                 case 74: // J
-                    if (e.altKey || e.ctrlKey || e.metaKey) {
-                        return;
-                    }
+                    if (e.altKey || e.ctrlKey || e.metaKey) { return; }
                     e.preventDefault();
                     this.next();
                     break;
@@ -2296,9 +2218,7 @@ shower.modules.define('shower.Player', [
 
                 case 9: // Tab (Shift)
                 case 32: // Space (Shift)
-                    if (e.altKey || e.ctrlKey || e.metaKey) {
-                        return;
-                    }
+                    if (e.altKey || e.ctrlKey || e.metaKey) { return; }
                     e.preventDefault();
 
                     if (e.shiftKey) {
@@ -2310,7 +2230,7 @@ shower.modules.define('shower.Player', [
             }
         },
 
-        _onContainerSlideModeEnter: function() {
+        _onContainerSlideModeEnter: function () {
             if (!this._currentSlide) {
                 this.go(0);
             }
@@ -2323,7 +2243,7 @@ shower.modules.define('shower.Player', [
 /**
  * @fileOverview Default Shower options.
  */
-shower.modules.define('shower.defaultOptions', function(provide, slidesParser) {
+shower.modules.define('shower.defaultOptions', function (provide, slidesParser) {
     provide({
         container_selector: '.shower',
 
@@ -2349,7 +2269,7 @@ shower.modules.define('shower.defaultOptions', function(provide, slidesParser) {
  */
 shower.modules.define('shower.slidesParser', [
     'Slide'
-], function(provide, Slide) {
+], function (provide, Slide) {
 
     /**
      * @typedef {object} HTMLElement
@@ -2368,7 +2288,7 @@ shower.modules.define('shower.slidesParser', [
         var slidesElements = containerElement.querySelectorAll(cssSelector);
         slidesElements = Array.prototype.slice.call(slidesElements);
 
-        return slidesElements.map(function(slideElement, index) {
+        return slidesElements.map(function (slideElement, index) {
             var slide = new Slide(slideElement);
 
             if (!slideElement.id) {
@@ -2393,8 +2313,8 @@ shower.modules.define('Slide', [
     'slide.layoutFactory',
     'util.Store',
     'util.extend'
-], function(provide, defaultOptions, EventEmitter, OptionsManager, Layout,
-    slideLayoutFactory, DataStore, extend) {
+], function (provide, defaultOptions, EventEmitter, OptionsManager, Layout,
+             slideLayoutFactory, DataStore, extend) {
 
     /**
      * @typedef {object} HTMLElement
@@ -2433,7 +2353,7 @@ shower.modules.define('Slide', [
 
     extend(Slide.prototype, /** @lends Slide.prototype */ {
 
-        init: function() {
+        init: function () {
             this.layout = typeof this._content === 'string' ?
                 new slideLayoutFactory.createLayout({
                     content: this._content
@@ -2444,7 +2364,7 @@ shower.modules.define('Slide', [
             this._setupListeners();
         },
 
-        destroy: function() {
+        destroy: function () {
             this._clearListeners();
 
             this._isActive = null;
@@ -2458,7 +2378,7 @@ shower.modules.define('Slide', [
          *
          * @returns {Slide}
          */
-        activate: function() {
+        activate: function () {
             this._isActive = true;
 
             var visited = this.state.get('visited');
@@ -2475,7 +2395,7 @@ shower.modules.define('Slide', [
          *
          * @returns {Slide}
          */
-        deactivate: function() {
+        deactivate: function () {
             this._isActive = false;
             this.events.emit('deactivate', {
                 slide: this
@@ -2489,7 +2409,7 @@ shower.modules.define('Slide', [
          *
          * @returns {boolean}
          */
-        isActive: function() {
+        isActive: function () {
             return this._isActive;
         },
 
@@ -2498,7 +2418,7 @@ shower.modules.define('Slide', [
          *
          * @returns {boolean}
          */
-        isVisited: function() {
+        isVisited: function () {
             return this.state.get('visited') > 0;
         },
 
@@ -2507,7 +2427,7 @@ shower.modules.define('Slide', [
          *
          * @borrows slide.Layout.getTitle
          */
-        getTitle: function() {
+        getTitle: function () {
             return this.layout.getTitle();
         },
 
@@ -2517,7 +2437,7 @@ shower.modules.define('Slide', [
          * @borrows slide.Layout.getTitle
          * @returns {Slide}
          */
-        setTitle: function(title) {
+        setTitle: function (title) {
             this.layout.setTitle(title);
             return this;
         },
@@ -2527,7 +2447,7 @@ shower.modules.define('Slide', [
          *
          * @returns {(string|undefined)}
          */
-        getId: function() {
+        getId: function () {
             return this.layout.getElement().id;
         },
 
@@ -2536,20 +2456,20 @@ shower.modules.define('Slide', [
          *
          * @borrows slide.Layout.getContent
          */
-        getContent: function() {
+        getContent: function () {
             return this.layout.getContent();
         },
 
-        _setupListeners: function() {
+        _setupListeners: function () {
             this.layoutListeners = this.layout.events.group()
                 .on('click', this._onSlideClick, this);
         },
 
-        _clearListeners: function() {
+        _clearListeners: function () {
             this.layoutListeners.offAll();
         },
 
-        _onSlideClick: function() {
+        _onSlideClick: function () {
             this.activate();
 
             this.events.emit('click', {
@@ -2569,7 +2489,7 @@ shower.modules.define('slide.Layout', [
     'shower.defaultOptions',
     'Emitter',
     'util.extend'
-], function(provide, OptionsManager, defaultOptions, EventEmitter, extend) {
+], function (provide, OptionsManager, defaultOptions, EventEmitter, extend) {
 
     /**
      * @typedef {object} HTMLElement
@@ -2602,7 +2522,7 @@ shower.modules.define('slide.Layout', [
          * @ignore
          * Init layout.
          */
-        init: function() {
+        init: function () {
             var parentNode = this._element.parentNode;
             if (!parentNode) {
                 this.setParentElement(parentNode);
@@ -2611,11 +2531,11 @@ shower.modules.define('slide.Layout', [
             }
         },
 
-        destroy: function() {
+        destroy: function () {
             this.setParent(null);
         },
 
-        setParent: function(parent) {
+        setParent: function (parent) {
             if (this._parent != parent) {
                 this._clearListeners();
 
@@ -2631,14 +2551,14 @@ shower.modules.define('slide.Layout', [
             }
         },
 
-        getParent: function() {
+        getParent: function () {
             return this._parent;
         },
 
         /**
          * @param {HTMLElement} parentElement
          */
-        setParentElement: function(parentElement) {
+        setParentElement: function (parentElement) {
             if (parentElement != this._parentElement) {
                 this._parentElement = parentElement;
                 parentElement.appendChild(this._element);
@@ -2654,7 +2574,7 @@ shower.modules.define('slide.Layout', [
          *
          * @returns {HTMLElement} Layout parent element.
          */
-        getParentElement: function() {
+        getParentElement: function () {
             return this._parentElement;
         },
 
@@ -2663,7 +2583,7 @@ shower.modules.define('slide.Layout', [
          *
          * @returns {HTMLElement} Layout element.
          */
-        getElement: function() {
+        getElement: function () {
             return this._element;
         },
 
@@ -2672,7 +2592,7 @@ shower.modules.define('slide.Layout', [
          *
          * @param {string} title Slide title.
          */
-        setTitle: function(title) {
+        setTitle: function (title) {
             var titleElementSelector = this.options.get('title_element_selector');
             var titleElement = this._element.querySelector(titleElementSelector);
 
@@ -2690,7 +2610,7 @@ shower.modules.define('slide.Layout', [
          *
          * @returns {(string|null)} Title.
          */
-        getTitle: function() {
+        getTitle: function () {
             var titleElementSelector = this.options.get('title_element_selector');
             var titleElement = this._element.querySelector(titleElementSelector);
             return titleElement ? titleElement.textContent : null;
@@ -2702,7 +2622,7 @@ shower.modules.define('slide.Layout', [
          * @param {string} name Data attr name.
          * @returns {object} Value of data attr.
          */
-        getData: function(name) {
+        getData: function (name) {
             var element = this._element;
 
             return element.dataset ?
@@ -2715,11 +2635,11 @@ shower.modules.define('slide.Layout', [
          *
          * @returns {string} Slide content.
          */
-        getContent: function() {
+        getContent: function () {
             return this._element.innerHTML;
         },
 
-        _setupListeners: function() {
+        _setupListeners: function () {
             this._slideListeners = this._parent.events.group()
                 .on('activate', this._onSlideActivate, this)
                 .on('deactivate', this._onSlideDeactivate, this);
@@ -2727,7 +2647,7 @@ shower.modules.define('slide.Layout', [
             this._element.addEventListener('click', this._onSlideClick.bind(this), false);
         },
 
-        _clearListeners: function() {
+        _clearListeners: function () {
             if (this._slideListeners) {
                 this._slideListeners.offAll();
             }
@@ -2735,17 +2655,17 @@ shower.modules.define('slide.Layout', [
             this._element.removeEventListener('click', this._onSlideClick.bind(this));
         },
 
-        _onSlideActivate: function() {
+        _onSlideActivate: function () {
             this._element.classList.add(this.options.get('active_classname'));
         },
 
-        _onSlideDeactivate: function() {
+        _onSlideDeactivate: function () {
             var elementClassList = this._element.classList;
             elementClassList.remove(this.options.get('active_classname'));
             elementClassList.add(this.options.get('visited_classname'));
         },
 
-        _onSlideClick: function() {
+        _onSlideClick: function () {
             this.events.emit('click');
         }
     });
@@ -2759,7 +2679,7 @@ shower.modules.define('slide.Layout', [
 shower.modules.define('slide.layoutFactory', [
     'slide.Layout',
     'util.extend'
-], function(provide, SlideLayout, extend) {
+], function (provide, SlideLayout, extend) {
 
     /**
      * @name slide.layoutFactory
@@ -2777,7 +2697,7 @@ shower.modules.define('slide.layoutFactory', [
          * @param {string} [parameters.contentType='slide'] Cover, slide, image.
          * @returns {slide.Layout}
          */
-        createLayout: function(parameters) {
+        createLayout: function (parameters) {
             parameters = parameters || {};
 
             var element = layoutFactory._createElement(extend({
@@ -2793,7 +2713,7 @@ shower.modules.define('slide.layoutFactory', [
          * @param options
          * @returns {HTMLElement}
          */
-        _createElement: function(options) {
+        _createElement: function (options) {
             var element = document.createElement('section');
             element.innerHTML = options.content;
             element.classList.add(options.contentType);
@@ -2808,7 +2728,7 @@ shower.modules.define('slide.layoutFactory', [
 shower.modules.define('util.SessionStore', [
     'util.Store',
     'util.inherit'
-], function(provide, Store, inherit) {
+], function (provide, Store, inherit) {
 
     /**
      * @class
@@ -2825,24 +2745,24 @@ shower.modules.define('util.SessionStore', [
     }
 
     inherit(SessionStore, Store, {
-        set: function(key, value) {
+        set: function (key, value) {
             SessionStore.super.set.call(this, key, value);
             this._saveToStorage();
         },
 
-        unset: function(key) {
+        unset: function (key) {
             SessionStore.super.unset.call(this, key);
             this._saveToStorage();
         },
 
-        _saveToStorage: function() {
+        _saveToStorage: function () {
             window.sessionStorage.setItem(
                 this._storageKey,
                 JSON.stringify(this.getAll())
             );
         },
 
-        _loadFromStorage: function() {
+        _loadFromStorage: function () {
             var store = window.sessionStorage.getItem(this._storageKey);
             return store && JSON.parse(store);
         }
@@ -2853,7 +2773,7 @@ shower.modules.define('util.SessionStore', [
 
 shower.modules.define('util.Store', [
     'util.extend'
-], function(provide, extend) {
+], function (provide, extend) {
 
     /**
      * @class
@@ -2868,13 +2788,13 @@ shower.modules.define('util.Store', [
         }
     }
 
-    extend(Store.prototype, /**@lends Store.prototype */ {
+    extend(Store.prototype, /**@lends Store.prototype */{
         /**
          * @param {string} key
          * @param {object} [defaultValue] Default value which returns if data is not definded.
          * @returns {object}
          */
-        get: function(key, defaultValue) {
+        get: function (key, defaultValue) {
             return this._data.hasOwnProperty(key) ?
                 this._data[key] :
                 defaultValue;
@@ -2883,7 +2803,7 @@ shower.modules.define('util.Store', [
         /**
          * @returns {object} All contains data.
          */
-        getAll: function() {
+        getAll: function () {
             return extend({}, this._data);
         },
 
@@ -2892,7 +2812,7 @@ shower.modules.define('util.Store', [
          * @param {object} [value]
          * @returns {Options} Self.
          */
-        set: function(key, value) {
+        set: function (key, value) {
             this._data[key] = value;
             return this;
         },
@@ -2901,7 +2821,7 @@ shower.modules.define('util.Store', [
          * @param {string} key
          * @returns {Options} Self.
          */
-        unset: function(key) {
+        unset: function (key) {
             if (!this._data.hasOwnProperty(key)) {
                 throw new Error(key + ' not found.');
             }
@@ -2910,7 +2830,7 @@ shower.modules.define('util.Store', [
             return this;
         },
 
-        destroy: function() {
+        destroy: function () {
             this._data = {};
         }
     });
@@ -2921,7 +2841,7 @@ shower.modules.define('util.Store', [
 /**
  * @file Simple bind without currying.
  */
-shower.modules.define('util.bind', function(provide) {
+shower.modules.define('util.bind', function (provide) {
 
     /**
      * @name util.bind
@@ -2931,18 +2851,18 @@ shower.modules.define('util.bind', function(provide) {
      * @param {object} ctx Context.
      */
     var bind = typeof Function.prototype.bind === 'function' ?
-        function(fn, ctx) {
+        function (fn, ctx) {
             return fn.bind(ctx);
         } :
-        function(fn, ctx) {
+        function (fn, ctx) {
             if (arguments.length > 2) {
                 var prependArgs = Array.prototype.slice.call(arguments, 2);
                 var args = Array.prototype.slice.call(arguments);
-                return function() {
+                return function () {
                     return fn.apply(ctx, [].concat(prependArgs, args));
                 };
             } else {
-                return function() {
+                return function () {
                     return fn.apply(ctx, arguments);
                 };
             }
@@ -2951,7 +2871,7 @@ shower.modules.define('util.bind', function(provide) {
     provide(bind);
 });
 
-shower.modules.define('util.extend', function(provide) {
+shower.modules.define('util.extend', function (provide) {
     /**
      * @ignore
      * @name util.extend
@@ -2987,7 +2907,7 @@ shower.modules.define('util.extend', function(provide) {
 
 shower.modules.define('util.inherit', [
     'util.extend'
-], function(provide, extend) {
+], function (provide, extend) {
 
     /**
      * @ignore
@@ -3011,7 +2931,7 @@ shower.modules.define('util.inherit', [
      *     }
      * });
      */
-    var inherit = function(childClass, parentClass, override) {
+    var inherit = function (childClass, parentClass, override) {
         childClass.prototype = Object.create(parentClass.prototype);
         childClass.prototype.constructor = childClass;
         childClass.super = parentClass.prototype;
@@ -3034,7 +2954,7 @@ shower.modules.define('shower-next', [
     'shower',
     'Emitter',
     'util.extend'
-], function(provide, globalShower, EventEmitter, extend) {
+], function (provide, globalShower, EventEmitter, extend) {
 
     var TIMER_PLUGIN_NAME = 'shower-timer';
     var DEFAULT_SELECTOR = '.next';
@@ -3050,9 +2970,7 @@ shower.modules.define('shower-next', [
     function Next(shower, options) {
         options = options || {};
 
-        this.events = new EventEmitter({
-            context: this
-        });
+        this.events = new EventEmitter({context: this});
 
         this._shower = shower;
         this._elementsSelector = options.selector || DEFAULT_SELECTOR;
@@ -3066,9 +2984,9 @@ shower.modules.define('shower-next', [
         }
     }
 
-    extend(Next.prototype, /** @lends plugin.Next.prototype */ {
+    extend(Next.prototype, /** @lends plugin.Next.prototype */{
 
-        destroy: function() {
+        destroy: function () {
             this._clearListeners();
 
             this._elements = null;
@@ -3081,7 +2999,7 @@ shower.modules.define('shower-next', [
          * Activate next inner item.
          * @return {plugin.Next}
          */
-        next: function() {
+        next: function () {
             if (!this._elements.length) {
                 throw new Error('Inner nav elements not found.');
             }
@@ -3094,7 +3012,7 @@ shower.modules.define('shower-next', [
             return this;
         },
 
-        prev: function() {
+        prev: function () {
             if (!this._elements.length) {
                 throw new Error('Inner nav elements not found.');
             }
@@ -3110,7 +3028,7 @@ shower.modules.define('shower-next', [
         /**
          * @returns {Number} Inner elements count.
          */
-        getLength: function() {
+        getLength: function () {
             this._elements = this._getElements();
             return this._elements.length;
         },
@@ -3118,11 +3036,11 @@ shower.modules.define('shower-next', [
         /**
          * @returns {Number} Completed inner elements count.
          */
-        getComplete: function() {
+        getComplete: function () {
             return this._innerComplete;
         },
 
-        _setupListeners: function() {
+        _setupListeners: function () {
             var shower = this._shower;
 
             this._showerListeners = shower.events.group()
@@ -3138,7 +3056,7 @@ shower.modules.define('shower-next', [
                 this._setupTimerPluginListener(timerPlugin);
             } else {
                 this._pluginsListeners = globalShower.plugins.events.group()
-                    .on('add', function(e) {
+                    .on('add', function (e) {
                         if (e.get('name') === TIMER_PLUGIN_NAME) {
                             this._setupTimerPluginListener();
                             this._pluginsListeners.offAll();
@@ -3147,7 +3065,7 @@ shower.modules.define('shower-next', [
             }
         },
 
-        _setupTimerPluginListener: function(plugin) {
+        _setupTimerPluginListener: function (plugin) {
             if (!plugin) {
                 var timerPlugin = globalShower.plugins.get(TIMER_PLUGIN_NAME, this._shower);
             }
@@ -3155,7 +3073,7 @@ shower.modules.define('shower-next', [
                 .on('next', this._onNext, this, 100);
         },
 
-        _clearListeners: function() {
+        _clearListeners: function () {
             this._showerListeners.offAll();
             this._playerListeners.offAll();
 
@@ -3164,7 +3082,7 @@ shower.modules.define('shower-next', [
             }
         },
 
-        _getElements: function() {
+        _getElements: function () {
             var slideLayout = this._shower.player.getCurrentSlide().layout;
             var slideElement = slideLayout.getElement();
 
@@ -3173,7 +3091,7 @@ shower.modules.define('shower-next', [
             );
         },
 
-        _onNext: function(e) {
+        _onNext: function (e) {
             var elementsLength = this._elements.length;
             var isSlideMode = this._shower.container.isSlideMode();
 
@@ -3183,7 +3101,7 @@ shower.modules.define('shower-next', [
             }
         },
 
-        _onPrev: function(e) {
+        _onPrev: function (e) {
             var elementsLength = this._elements.length;
             var isSlideMode = this._shower.container.isSlideMode();
             var completed = this._innerComplete;
@@ -3194,7 +3112,7 @@ shower.modules.define('shower-next', [
             }
         },
 
-        _go: function() {
+        _go: function () {
             for (var i = 0, k = this._elements.length; i < k; i++) {
                 var element = this._elements[i];
 
@@ -3206,13 +3124,13 @@ shower.modules.define('shower-next', [
             }
         },
 
-        _onSlideActivate: function() {
+        _onSlideActivate: function () {
             this._elements = this._getElements();
             this._innerComplete = this._getInnerComplete();
         },
 
-        _getInnerComplete: function() {
-            return this._elements.filter(function(element) {
+        _getInnerComplete: function () {
+            return this._elements.filter(function (element) {
                 return element.classList.contains('active');
             }).length;
         }
@@ -3221,7 +3139,7 @@ shower.modules.define('shower-next', [
     provide(Next);
 });
 
-shower.modules.require(['shower'], function(sh) {
+shower.modules.require(['shower'], function (sh) {
     sh.plugins.add('shower-next');
 });
 
@@ -3231,7 +3149,7 @@ shower.modules.require(['shower'], function(sh) {
  */
 shower.modules.define('shower-progress', [
     'util.extend'
-], function(provide, extend) {
+], function (provide, extend) {
 
     /**
      * @class
@@ -3242,7 +3160,7 @@ shower.modules.define('shower-progress', [
      * @param {String} [options.selector = '.progress']
      * @constructor
      */
-    function Progress(shower, options) {
+    function Progress (shower, options) {
         options = options || {};
         this._shower = shower;
         this._playerListeners = null;
@@ -3264,14 +3182,14 @@ shower.modules.define('shower-progress', [
         }
     }
 
-    extend(Progress.prototype, /** @lends plugin.Progress.prototype */ {
+    extend(Progress.prototype, /** @lends plugin.Progress.prototype */{
 
-        destroy: function() {
+        destroy: function () {
             this._clearListeners();
             this._shower = null;
         },
 
-        updateProgress: function() {
+        updateProgress: function () {
             var slidesCount = this._shower.getSlidesCount(),
                 currentSlideNumber = this._shower.player.getCurrentSlideIndex(),
                 currentProgressValue = (100 / (slidesCount - 1)) * currentSlideNumber;
@@ -3283,7 +3201,7 @@ shower.modules.define('shower-progress', [
             }
         },
 
-        _setupListeners: function() {
+        _setupListeners: function () {
             var shower = this._shower;
 
             this._showerListeners = shower.events.group()
@@ -3293,7 +3211,7 @@ shower.modules.define('shower-progress', [
                 .on('activate', this._onSlideChange, this);
         },
 
-        _clearListeners: function() {
+        _clearListeners: function () {
             if (this._showerListeners) {
                 this._showerListeners.offAll();
             }
@@ -3302,7 +3220,7 @@ shower.modules.define('shower-progress', [
             }
         },
 
-        _onSlideChange: function() {
+        _onSlideChange: function () {
             this.updateProgress();
         }
     });
@@ -3310,7 +3228,7 @@ shower.modules.define('shower-progress', [
     provide(Progress);
 });
 
-shower.modules.require(['shower'], function(sh) {
+shower.modules.require(['shower'], function (sh) {
     sh.plugins.add('shower-progress');
 });
 
@@ -3323,7 +3241,7 @@ shower.modules.define('shower-timer', [
     'Emitter',
     'util.extend',
     'util.bind'
-], function(provide, showerGlobal, EventEmitter, extend, bind) {
+], function (provide, showerGlobal, EventEmitter, extend, bind) {
 
     var PLUGIN_NAME_NEXT = 'shower-next';
 
@@ -3334,7 +3252,7 @@ shower.modules.define('shower-timer', [
      * @param {Shower} shower
      * @constructor
      */
-    function Timer(shower) {
+    function Timer (shower) {
         this.events = new EventEmitter();
 
         this._shower = shower;
@@ -3347,9 +3265,9 @@ shower.modules.define('shower-timer', [
         this._setupListeners();
     }
 
-    extend(Timer.prototype, /** @lends plugin.Timer.prototype */ {
+    extend(Timer.prototype, /** @lends plugin.Timer.prototype */{
 
-        destroy: function() {
+        destroy: function () {
             this._clearTimer();
             this._clearListeners();
 
@@ -3359,15 +3277,15 @@ shower.modules.define('shower-timer', [
         /**
          * @param {Integer} timing
          */
-        run: function(timing) {
+        run: function (timing) {
             this._initTimer(timing);
         },
 
-        stop: function() {
+        stop: function () {
             this._clearTimer();
         },
 
-        _setupListeners: function() {
+        _setupListeners: function () {
             var shower = this._shower;
 
             this.events
@@ -3383,7 +3301,7 @@ shower.modules.define('shower-timer', [
             this._nextPlugin = showerGlobal.plugins.get(PLUGIN_NAME_NEXT, shower);
             if (!this._nextPlugin) {
                 this._pluginsListeners = shower.plugins.events.group()
-                    .on('pluginadd', function(e) {
+                    .on('pluginadd', function (e) {
                         if (e.get('name') === PLUGIN_NAME_NEXT) {
                             this._nextPlugin = shower.plugins.get(PLUGIN_NAME_NEXT);
                             this._pluginsListeners.offAll();
@@ -3396,12 +3314,12 @@ shower.modules.define('shower-timer', [
             }
         },
 
-        _clearListeners: function() {
+        _clearListeners: function () {
             this._showerListeners.offAll();
             this._playerListeners.offAll();
         },
 
-        _onSlideActivate: function() {
+        _onSlideActivate: function () {
             this._clearTimer();
             var currentSlide = this._shower.player.getCurrentSlide();
 
@@ -3423,7 +3341,7 @@ shower.modules.define('shower-timer', [
             }
         },
 
-        _initTimer: function(timing) {
+        _initTimer: function (timing) {
             var shower = this._shower,
                 nextPlugin = this._nextPlugin;
 
@@ -3435,19 +3353,19 @@ shower.modules.define('shower-timer', [
                 timing = timing / (nextPlugin.getLength() + 1);
             }
 
-            this._timer = setInterval(bind(function() {
+            this._timer = setInterval(bind(function () {
                 this.events.emit('next');
             }, this), timing);
         },
 
-        _clearTimer: function() {
+        _clearTimer: function () {
             if (this._timer) {
                 clearInterval(this._timer);
                 this._timer = null;
             }
         },
 
-        _onNext: function() {
+        _onNext: function () {
             this._clearTimer();
             this._shower.player.next();
         }
@@ -3456,7 +3374,7 @@ shower.modules.define('shower-timer', [
     provide(Timer);
 });
 
-shower.modules.require(['shower'], function(sh) {
+shower.modules.require(['shower'], function (sh) {
     sh.plugins.add('shower-timer');
 });
 
@@ -3466,7 +3384,7 @@ shower.modules.require(['shower'], function(sh) {
  */
 shower.modules.define('shower-touch', [
     'util.extend'
-], function(provide, extend) {
+], function (provide, extend) {
 
     var INTERACTIVE_ELEMENTS = [
         'VIDEO', 'AUDIO',
@@ -3481,44 +3399,59 @@ shower.modules.define('shower-touch', [
      * @param {Object} [options] Plugin options.
      * @constructor
      */
-    function Touch(shower, options) {
+    function Touch (shower, options) {
         options = options || {};
         this._shower = shower;
 
         this._setupListeners();
     }
 
-    extend(Touch.prototype, /** @lends plugin.Touch.prototype */ {
+    extend(Touch.prototype, /** @lends plugin.Touch.prototype */{
 
-        destroy: function() {
+        destroy: function () {
             this._clearListeners();
             this._shower = null;
         },
 
-        _setupListeners: function() {
+        _setupListeners: function () {
             var shower = this._shower;
 
             this._showerListeners = shower.events.group()
-                .on('destroy', this.destroy, this);
+                .on('add', this._onSlideAdd, this);
 
             this._bindedTouchStart = this._onTouchStart.bind(this);
             this._bindedTouchMove = this._onTouchMove.bind(this);
 
-            document.addEventListener('touchstart', this._bindedTouchStart, false);
-            document.addEventListener('touchmove', this._bindedTouchMove, false);
+            this._shower.getSlides().forEach(this._addTouchStartListener, this);
+            document.addEventListener('touchmove', this._bindedTouchMove, true);
         },
 
-        _clearListeners: function() {
+        _clearListeners: function () {
             this._showerListeners.offAll();
-            document.removeEventListener('touchstart', this._bindedTouchStart, false);
+            this._shower.getSlides().forEach(this._removeTouchStartListener, this);
             document.removeEventListener('touchmove', this._bindedTouchMove, false);
         },
 
-        _onTouchStart: function(e) {
+        _onSlideAdd: function (event) {
+            var slide = event.get('slide');
+            this._addTouchStartListener(slide);
+        },
+
+        _addTouchStartListener: function (slide) {
+            var element = slide.layout.getElement();
+            element.addEventListener('touchstart', this._bindedTouchStart, false);
+        },
+
+        _removeTouchStartListener: function (slide) {
+            var element = slide.layout.getElement();
+            element.removeEventListener('touchstart', this._bindedTouchStart, false);
+        },
+
+        _onTouchStart: function (e) {
             var shower = this._shower;
             var isSlideMode = shower.container.isSlideMode();
             var element = e.target;
-            var slide = this._getSlideByElement(element);
+            var slide = this._getSlideByElement(e.currentTarget);
             var x;
 
             if (slide) {
@@ -3538,14 +3471,14 @@ shower.modules.define('shower-touch', [
             }
         },
 
-        _onTouchMove: function(e) {
+        _onTouchMove: function (e) {
             if (this._shower.container.isSlideMode()) {
                 e.preventDefault();
             }
         },
 
-        _getSlideByElement: function(element) {
-            var slides = this._shower.getSlidesArray();
+        _getSlideByElement: function (element) {
+            var slides = this._shower.getSlides();
             var result = null;
 
             for (var i = 0, k = slides.length; i < k; i++) {
@@ -3558,9 +3491,9 @@ shower.modules.define('shower-touch', [
             return result;
         },
 
-        _isInteractiveElement: function(element) {
-            return INTERACTIVE_ELEMENTS.some(function(elName) {
-                return elName == element.tagName;
+        _isInteractiveElement: function (element) {
+            return INTERACTIVE_ELEMENTS.some(function (elName) {
+                return elName === element.tagName;
             });
         }
     });
@@ -3568,6 +3501,6 @@ shower.modules.define('shower-touch', [
     provide(Touch);
 });
 
-shower.modules.require(['shower'], function(sh) {
+shower.modules.require(['shower'], function (sh) {
     sh.plugins.add('shower-touch');
 });
