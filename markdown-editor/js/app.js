@@ -9,7 +9,7 @@ var languageOverrides = {
 };
 
 emojify.setConfig({
-  img_dir: 'emoji'
+  img_dir: 'img/emoji'
 });
 
 var hashto;
@@ -58,7 +58,7 @@ var editor = CodeMirror.fromTextArea(document.getElementById('code'), {
   lineNumbers: true,
   matchBrackets: true,
   lineWrapping: true,
-  theme: 'base16-light',
+  theme: 'mdn-like',
   extraKeys: {
     "Enter": "newlineAndIndentContinueMarkdownList"
   }
@@ -66,6 +66,7 @@ var editor = CodeMirror.fromTextArea(document.getElementById('code'), {
 
 editor.on('change', update);
 
+// handle event drag/drop file into editor
 document.addEventListener('drop', function(e) {
   e.preventDefault();
   e.stopPropagation();
@@ -132,6 +133,9 @@ document.getElementById('close-menu').addEventListener('click', function() {
   hideMenu();
 });
 
+// listen for hot key pressed
+// Ctrl + S : save markdown
+// Ctrl + shift + S: show save dialog
 document.addEventListener('keydown', function(e) {
   if (e.keyCode == 83 && (e.ctrlKey || e.metaKey)) {
     e.shiftKey ? showMenu() : saveAsMarkdown();
@@ -148,6 +152,7 @@ document.addEventListener('keydown', function(e) {
   }
 });
 
+// zip editor content and put in hash string
 function updateHash() {
   window.location.hash = btoa( // base64 so url-safe
     RawDeflate.deflate( // gzip
@@ -158,6 +163,7 @@ function updateHash() {
   );
 }
 
+// When load editor, if there is hash, unzip content and show on editor
 if (window.location.hash) {
   var h = window.location.hash.replace(/^#/, '');
   if (h.slice(0, 5) == 'view:') {
