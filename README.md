@@ -38,4 +38,4 @@ Usage:
 
 
 <img src="https://octodex.github.com/images/octobiwan.jpg" width="256"/>
-<h2 class="shout">[Visit me on github](https://github.com/bluzky/shower.maker)</h2>
+[Visit me on github](https://github.com/bluzky/shower.maker)
