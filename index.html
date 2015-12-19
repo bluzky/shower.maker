@@ -1,28 +1,96 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <title>Shower maker</title>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=792, user-scalable=no">
-    <meta http-equiv="x-ua-compatible" content="ie=edge">
-    <link rel="stylesheet" href="themes/ribbon/styles/screen-16x10.css">
-    <link rel="stylesheet" href="css/prism.css" media="screen" charset="utf-8">
-    <link rel="stylesheet" href="css/style.css" media="screen" charset="utf-8">
-
+  <meta charset="UTF-8">
+  <title>Markdown Editor</title>
+  <script src="js/emojify.js"></script>
+  <script src="js/marked.js" charset="utf-8"></script>
+  <script src="codemirror/lib/codemirror.js"></script>
+  <script src="codemirror/overlay.js"></script>
+  <script src="codemirror/xml/xml.js"></script>
+  <script src="codemirror/markdown/markdown.js"></script>
+  <script src="codemirror/gfm/gfm.js"></script>
+  <script src="codemirror/javascript/javascript.js"></script>
+  <script src="codemirror/css/css.js"></script>
+  <script src="codemirror/htmlmixed/htmlmixed.js"></script>
+  <script src="codemirror/lib/util/continuelist.js"></script>
+  <script src="js/rawinflate.js"></script>
+  <script src="js/rawdeflate.js"></script>
+  <script src="js/prism.js"></script>
+  <!-- <script src="js/shower.js"></script> -->
+  <link rel="stylesheet" href="shower/themes/ribbon/styles/screen-16x10.css">
+  <link rel="stylesheet" href="css/prism.css">
+  <link rel="stylesheet" href="css/mdn-like.css">
+  <link rel="stylesheet" href="codemirror/lib/codemirror.css">
+  <link rel="stylesheet" href="css/default.css">
+  <link rel="stylesheet" href="css/shower.maker.css">
 </head>
 <body>
-    <div class="panel">
-        <textarea name="markdown" id="markdown-text" class="mardown-input"></textarea>
-    </div>
-    <div class="panel">
-        <div id="html-text" class="html-output shower list"></div>
-    </div>
-    <div class="row"><button id="compile">Compile</button></div>
+  <div id="in"><form><textarea id="code"># (GitHub-Flavored) Markdown Editor
 
-<script src="js/jquery-2.1.4.min.js" charset="utf-8"></script>
-<script src="js/marked.js" charset="utf-8"></script>
-<script src="js/prism.js" charset="utf-8"></script>
-<script src="js/app.js" charset="utf-8"></script>
+Basic useful feature list:
+
+ * Ctrl+S / Cmd+S to save the file
+ * Ctrl+Shift+S / Cmd+Shift+S to choose to save as Markdown or HTML
+ * Drag and drop a file into here to load it
+ * File contents are saved in the URL so you can share files
+
+
+I'm no good at writing sample / filler text, so go write something yourself.
+
+Look, a list!
+
+ * foo
+ * bar
+ * baz
+
+And here's some code! :+1:
+
+```javascript
+$(function(){
+  $('div').html('I am a div.');
+});
+```
+
+This is [on GitHub](https://github.com/jbt/markdown-editor) so let me know if I've b0rked it somewhere.
+
+
+Props to Mr. Doob and his [code editor](http://mrdoob.com/projects/code-editor/), from which
+the inspiration to this, and some handy implementation hints, came.
+
+### Stuff used to make this:
+
+ * [markdown-it](https://github.com/markdown-it/markdown-it) for Markdown parsing
+ * [CodeMirror](http://codemirror.net/) for the awesome syntax-highlighted editor
+ * [highlight.js](http://softwaremaniacs.org/soft/highlight/en/) for syntax highlighting in output code blocks
+ * [js-deflate](https://github.com/dankogai/js-deflate) for gzipping of data to make it fit in URLs
+</textarea></form></div>
+  <div id="out" class="shower list"></div>
+  <div id="menu">
+    <span>Save As</span>
+    <div id="saveas-markdown">
+      <svg height="64" width="64" xmlns="http://www.w3.org/2000/svg">
+        <g transform="scale(0.0625)">
+          <path d="M950.154 192H73.846C33.127 192 0 225.12699999999995 0 265.846v492.308C0 798.875 33.127 832 73.846 832h876.308c40.721 0 73.846-33.125 73.846-73.846V265.846C1024 225.12699999999995 990.875 192 950.154 192zM576 703.875L448 704V512l-96 123.077L256 512v192H128V320h128l96 128 96-128 128-0.125V703.875zM767.091 735.875L608 512h96V320h128v192h96L767.091 735.875z" />
+        </g>
+      </svg>
+
+      <span>Markdown</span>
+    </div>
+    <div id="saveas-html">
+      <svg height="64" width="64" xmlns="http://www.w3.org/2000/svg">
+        <g transform="scale(0.0625) translate(64,0)">
+          <path d="M608 192l-96 96 224 224L512 736l96 96 288-320L608 192zM288 192L0 512l288 320 96-96L160 512l224-224L288 192z" />
+        </g>
+      </svg>
+
+      <span>HTML</span>
+    </div>
+    <a id="close-menu">&times;</a>
+  </div>
+  <div id="preview">
+      <iframe id="preview-frame" src="preview.html" width="100%" height="100%"></iframe>
+  </div>
+  <script src="js/shower.maker.js"></script>
 </body>
 </html>

@@ -192,4 +192,23 @@ h6{ font-size:0.9em; }
         display: block;
         position: relative;
     }
+    .shower.list .slide a {
+        pointer-events: auto;
+    }
+}
+
+#preview {
+    position: fixed;
+    z-index: 99;
+
+    display: none;
+
+    width: 100%;
+    height: 100%;
+
+    text-align: center;
+
+    color: white;
+    border-radius: 5px;
+    background-color: #111;
 }

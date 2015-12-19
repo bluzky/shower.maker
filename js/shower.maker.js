@@ -2,9 +2,40 @@ var URL = window.URL || window.webkitURL || window.mozURL || window.msURL;
 navigator.saveBlob = navigator.saveBlob || navigator.msSaveBlob || navigator.mozSaveBlob || navigator.webkitSaveBlob;
 window.saveAs = window.saveAs || window.webkitSaveAs || window.mozSaveAs || window.msSaveAs;
 
+// custom link renderer for markedjs
+// this will open link/url in a new tab
+var renderer = new marked.Renderer();
+renderer.link = function(href, title, text) {
+    if (this.options.sanitize) {
+        try {
+            var prot = decodeURIComponent(unescape(href))
+                .replace(/[^\w:]/g, '')
+                .toLowerCase();
+        } catch (e) {
+            return '';
+        }
+        if (prot.indexOf('javascript:') === 0 || prot.indexOf('vbscript:') === 0) {
+            return '';
+        }
+    }
+
+    var out = '<a href="' + href + '"';
+    // if this is external href, open in new tab
+    if(href[0] != "#"){
+        out += ' target="_blank"';
+    }
+
+    if (title) {
+        out += ' title="' + title + '"';
+    }
+    out += '>' + text + '</a>';
+    return out;
+};
+
 // setup markedjs highlight configuration
 marked.setOptions({
     langPrefix: "language-",
+    renderer: renderer,
     highlight: function (code, lang, callback) {
         var result = Prism.highlight(code, Prism.languages[lang]);
         var err = null;
@@ -140,6 +171,8 @@ function save(code, name) {
 
 var menuVisible = false;
 var menu = document.getElementById('menu');
+var previewVisible = false;
+var preview = document.getElementById('preview')
 
 function showMenu() {
   menuVisible = true;
@@ -159,19 +192,32 @@ document.getElementById('close-menu').addEventListener('click', function() {
 // Ctrl + S : save markdown
 // Ctrl + shift + S: show save dialog
 document.addEventListener('keydown', function(e) {
-  if (e.keyCode == 83 && (e.ctrlKey || e.metaKey)) {
-    e.shiftKey ? showMenu() : saveAsMarkdown();
-
-    e.preventDefault();
-    return false;
-  }
-
-  if (e.keyCode === 27 && menuVisible) {
-    hideMenu();
-
-    e.preventDefault();
-    return false;
-  }
+    switch (e.keyCode) {
+        case 83: // save markdown
+            if(e.ctrlKey || e.metaKey){
+                e.shiftKey ? showMenu() : saveAsMarkdown();
+                e.preventDefault();
+                return false;
+            }
+            break;
+        case 27: // hide menu if showing
+            if(menuVisible) {
+                hideMenu();
+                e.preventDefault();
+                return false;
+            }
+            break;
+        case 114: // show/hide preview
+            if(previewVisible) {
+                hidePreview();
+            }else{
+                showPreview();
+            }
+            e.preventDefault();
+            return false;
+            break;
+        default:
+    }
 });
 
 // zip editor content and put in hash string
@@ -208,3 +254,30 @@ if (window.location.hash) {
   update(editor);
   editor.focus();
 }
+
+function showPreview() {
+  // update preview content
+  var html = document.getElementById('out').innerHTML
+  var previewFrame = document.getElementById('preview-frame');
+  previewFrame.contentWindow.document.body.innerHTML = html;
+  previewFrame.contentWindow.reloadAll();
+  previewVisible = true;
+  preview.style.display = 'block';
+}
+
+function hidePreview() {
+  previewVisible = false;
+  preview.style.display = 'none';
+}
+
+// listen to preview frame key event for exiting preview mode
+var previewFrame = document.getElementById('preview-frame');
+previewFrame.contentWindow.document.addEventListener('keydown', function(e) {
+    if(e.keyCode == 114){
+        if(previewVisible) {
+            hidePreview();
+        }else{
+            showPreview()
+        }
+    }
+});
