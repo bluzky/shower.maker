@@ -2,6 +2,10 @@
 
 [Use it here](http://bluzky.github.io/shower_maker/)
 
+**Notes**: Slides are separated by a line as below
+``` 
+::
+```
 
 ## Shower maker by [Bluzky](https://github.com/bluzky/shower.maker)
 
@@ -36,6 +40,3 @@ Usage:
  * [prism js](http://prismjs.com/) for highlight code snippet in presentation
  * [js-deflate](https://github.com/dankogai/js-deflate) for gzipping of data to make it fit in URLs
 
-
-<img src="https://octodex.github.com/images/octobiwan.jpg" width="256"/>
-[Visit me on github](https://github.com/bluzky/shower.maker)
