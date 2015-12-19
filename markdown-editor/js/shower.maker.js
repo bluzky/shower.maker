@@ -2,15 +2,37 @@ var URL = window.URL || window.webkitURL || window.mozURL || window.msURL;
 navigator.saveBlob = navigator.saveBlob || navigator.msSaveBlob || navigator.mozSaveBlob || navigator.webkitSaveBlob;
 window.saveAs = window.saveAs || window.webkitSaveAs || window.mozSaveAs || window.msSaveAs;
 
-// Because highlight.js is a bit awkward at times
-var languageOverrides = {
-  js: 'javascript',
-  html: 'xml'
-};
+// setup markedjs highlight configuration
+marked.setOptions({
+    langPrefix: "language-",
+    highlight: function (code, lang, callback) {
+        var result = Prism.highlight(code, Prism.languages[lang]);
+        var err = null;
+        if(callback != undefined)
+            callback(err, result);
+        else {
+            return result;
+        }
+    }
+});
+
 
 emojify.setConfig({
   img_dir: 'img/emoji'
 });
+
+// compile slide
+var slideReg = /^ *::([a-zA-Z0-9]*).*\n*([^]*?)(?:\n+ *::)/;
+function compilePresentation(text){
+    var html = "";
+    while((result = slideReg.exec(text)) != undefined){
+      html += '<section class="slide"><div>';
+      html += marked(result[2]);
+      html += "</div></section>";
+      text = text.substring(result[0].length-2);
+    }
+    return html;
+}
 
 var hashto;
 
@@ -32,7 +54,7 @@ function setOutput(val) {
   var old = out.cloneNode(true);
 
   // compile markdown
-  out.innerHTML = marked(val);
+  out.innerHTML = compilePresentation(val);
 
   // parse emoji character
   emojify.run(out);
