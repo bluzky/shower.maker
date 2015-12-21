@@ -53,14 +53,33 @@ emojify.setConfig({
 });
 
 // compile slide
-var slideReg = /^ *::([a-zA-Z0-9]*).*\n*([^]*?)(?:\n+ *::)/;
+var slideReg = /^ *::([a-zA-Z0-9-]*)([a-zA-Z0-9\-.#]*).*\n*([^]*?)(?:\n+ *::)/;
+var idReg = /#([a-zA-z0-9\-]*)/;
+var classReg = /\.([a-zA-z0-9\-]*)/;
+
+function extractAll(dataStr, regStr){
+    var match = [];
+    while((result = regStr.exec(dataStr)) != undefined){
+        match.push(result[1]);
+    }
+    return match;
+}
+
 function compilePresentation(text){
     var html = "";
     while((result = slideReg.exec(text)) != undefined){
-      html += '<section class="slide"><div>';
-      html += marked(result[2]);
-      html += "</div></section>";
-      text = text.substring(result[0].length-2);
+        // extract custom id and class
+        switch (result[1]) {
+            case 'css': // append style to document style
+                html += '<style>' + result[3] + '</style>';
+                text = text.substring(result[0].length-2);
+                break;
+            default:
+                html += '<section class="slide"><div>';
+                html += marked(result[3]);
+                html += "</div></section>";
+                text = text.substring(result[0].length-2);
+        }
     }
     return html;
 }
