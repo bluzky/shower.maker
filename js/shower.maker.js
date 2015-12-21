@@ -54,28 +54,43 @@ emojify.setConfig({
 
 // compile slide
 var slideReg = /^ *::([a-zA-Z0-9-]*)([a-zA-Z0-9\-.#]*).*\n*([^]*?)(?:\n+ *::)/;
-var idReg = /#([a-zA-z0-9\-]*)/;
-var classReg = /\.([a-zA-z0-9\-]*)/;
+var idReg = /#([a-zA-z0-9\-]*)/g;
+var classReg = /\.([a-zA-z0-9\-]*)/g;
 
-function extractAll(dataStr, regStr){
-    var match = [];
-    while((result = regStr.exec(dataStr)) != undefined){
+function extractAll(dataStr, regex){
+    var match = [], result;
+    
+    while((result = regex.exec(dataStr)) != null){
         match.push(result[1]);
+        if(result.index === regex.lastIndex)
+            regex.lastIndex++;
     }
     return match;
 }
 
 function compilePresentation(text){
-    var html = "";
+    var html = "", result;
     while((result = slideReg.exec(text)) != undefined){
-        // extract custom id and class
         switch (result[1]) {
             case 'css': // append style to document style
                 html += '<style>' + result[3] + '</style>';
                 text = text.substring(result[0].length-2);
                 break;
             default:
-                html += '<section class="slide"><div>';
+                // extract custom id and class
+                var ids = extractAll(result[2], idReg);
+                var cls = extractAll(result[2], classReg);
+                var styleStr = "";
+                if(ids.length > 0)
+                    styleStr += 'id="' + ids[0] + '"';
+
+                styleStr += ' class="slide';
+                for(var i = 0; i < cls.length; i++){
+                    styleStr += ' ' + cls[i];
+                }
+                styleStr += '"';
+
+                html += '<section ' + styleStr + '><div>';
                 html += marked(result[3]);
                 html += "</div></section>";
                 text = text.substring(result[0].length-2);
