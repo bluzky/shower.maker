@@ -1,6 +1,6 @@
 # Try it online
 
-[Use it here](http://bluzky.github.io/shower_maker/)
+[Try it](http://bluzky.github.io/projects/shower_maker/demo/)
 
 **Notes**: Slides are separated by a line as below
 ``` 
